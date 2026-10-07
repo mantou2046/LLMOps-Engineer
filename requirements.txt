@@ -1,0 +1,22 @@
+# 项目依赖 —— 按周递进添加，不预先堆全量。
+# 约定：本文件只放「跑起来需要」的运行时依赖；开发/测试工具另见 requirements-dev.txt。
+#
+# 周次对应：
+#   W1–W2  服务层地基（FastAPI + 配置 + HTTP）
+#   W3     实验追踪（mlflow）
+#   W4     编排与网关（prefect / litellm）
+#   W6     检索与评估（向量库 / RAGAS）
+#   W7     观测与微调
+
+# ---- 服务层（W1–W2：把 LLM 调用包成可部署服务）----
+fastapi>=0.115,<0.200
+uvicorn[standard]>=0.32,<1.0
+pydantic>=2.9,<3.0
+pydantic-settings>=2.6,<3.0
+
+# ---- 配置与 HTTP ----
+python-dotenv>=1.0,<2.0
+httpx>=0.27,<1.0
+
+# ---- LLM 调用（W2 起接入，先占位）----
+openai>=1.50,<2.0
