@@ -1,7 +1,12 @@
 # LLMOps Engineer 作品集 · 资金/财务制度知识库智能问答与评估平台
 
+[![CI](https://github.com/mantou2046/LLMOps-Engineer/actions/workflows/ci.yml/badge.svg)](https://github.com/mantou2046/LLMOps-Engineer/actions/workflows/ci.yml)
+
 > 一个**可复现、可评估、可观测**的 LLM 应用，用来回答资金 / 财务制度类问题。
 > 目标不是「能跑」，而是**能证明每次改动让系统变好还是变坏**。
+
+- **仓库**：https://github.com/mantou2046/LLMOps-Engineer （公开）
+- **学习计划与周复盘**：`E:\Projects\Obsidian\YYDS\01LLMOps-Engineer\`
 
 ---
 
@@ -67,14 +72,16 @@ python scripts/check_sensitive.py --all                              # 手动全
 
 检查内容分三层：
 
-| 层 | 内容 |
-| --- | --- |
-| 内置规则 | 私钥、各类 API Key / Token、JWT、**内网 IP 段**、带口令的连接串、疑似凭据键值 |
-| 自定义词表 | `scripts/sensitive_terms.txt` 里的单位名 / 内网域名 / 真实表名字段名 |
-| CI 兜底 | `.github/workflows/ci.yml` 在 PR 上跑同一脚本，防止本地没装钩子的人绕过 |
+| 层 | 内容 | 触发时机 |
+| --- | --- | --- |
+| 内置规则 | 私钥、各类 API Key / Token、JWT、**内网 IP 段**、带口令的连接串、疑似凭据键值 | — |
+| 自定义词表 | `scripts/sensitive_terms.txt` 里的单位名 / 内网域名 / 真实表名字段名 | — |
+| 本地钩子 | `.githooks/pre-commit` 扫**暂存区**，命中即阻止提交 | `git commit` |
+| CI 兜底 | `.github/workflows/ci.yml` 扫**全树**，防止本地没装钩子的人绕过 | push 到 main / PR |
 
 > ⚠️ 脚本**只报「文件:行号 + 命中类型」，绝不回显命中的原文** —— 否则检查工具本身就成了泄露渠道。
 > ⚠️ `scripts/sensitive_terms.txt` 被 gitignore，**真实词表只留本地**。
+> ✅ 两道门禁均已实测生效（2026-10-07）：本地钩子在提交时扫描 7 个暂存文件；CI 在首次 push 时扫描全树 14 个文件并通过。
 
 ---
 
