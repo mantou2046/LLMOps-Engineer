@@ -30,6 +30,10 @@ htmlcov/
 credentials.json
 service-account*.json
 
+# 自定义敏感词表：真实词条绝不能进公开仓库
+# （否则「防泄露清单」本身就成了泄露源；只提交 sensitive_terms.example.txt）
+scripts/sensitive_terms.txt
+
 # ---- 数据（只保留样例与 .gitkeep）----
 data/*
 !data/.gitkeep

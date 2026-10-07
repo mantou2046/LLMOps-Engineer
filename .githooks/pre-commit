@@ -1,0 +1,17 @@
+#!/bin/sh
+# 提交前脱敏检查 —— 由 scripts/check_sensitive.py 实现
+#
+# 启用方式（本仓库已通过 core.hooksPath 指向 .githooks，无需拷贝到 .git/hooks）：
+#     git config core.hooksPath .githooks
+#
+# 临时跳过（谨慎使用，只在确认过是误报时）：
+#     git commit --no-verify
+
+for PY in python python3 py; do
+    if command -v "$PY" >/dev/null 2>&1; then
+        exec "$PY" scripts/check_sensitive.py --staged
+    fi
+done
+
+echo "check_sensitive: 未找到 python 解释器，跳过脱敏检查" >&2
+exit 0

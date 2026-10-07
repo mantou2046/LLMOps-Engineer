@@ -37,16 +37,27 @@ env | grep -i proxy
 
 清华源的失败原因：**返回的索引页疑似被截断**（只列到 `six-1.9.0.tar.gz`，而阿里云同一页面有 `six-1.17.0.whl`；两者 `Content-Length` 都约 11.5 KB、`Last-Modified` 同为 2024-12-04）。
 
-**验证命令（换源就改 `--index-url`）**：
+**验证命令**（PowerShell；**`--no-cache-dir` 必加**，否则会命中本地缓存、结论失真）：
 
-```bash
-python -m pip download --no-deps -d /tmp/t six
+```powershell
+# 官方源（默认）
+python -m pip download --no-deps --no-cache-dir -d $env:TEMP\piptest six
+# 换源（改 --index-url）
+python -m pip download --no-deps --no-cache-dir -d $env:TEMP\piptest -i <url> six
 ```
 
 **当前结论**：默认直接用官方源；若超时，优先换**阿里云**或**腾讯云**，别默认清华。
 
-> ⚠️ **待复核**：上表在**沙箱环境**内测得。两个镜像的索引页 `Content-Length` 都约 11.5 KB 且 `Last-Modified` 同为 2024-12-04，**疑似响应被截断**，可能含沙箱因素。
-> **请在自己终端重跑一次上面的验证命令**确认；若清华源在你这边正常，把上表改回来即可。
+**复核记录**
+
+| 日期 | 环境 | 结果 |
+| --- | --- | --- |
+| 2026-10-07 11:05 | 用户真实终端 | ✅ 官方源成功（six-1.17.0）⚠️ 但日志显示 `Using cached`，**命中本地缓存、未真正走网络** |
+| 2026-10-07 10:48 | 沙箱 | 官方 ✅ / 阿里云 ✅ / 腾讯云 ✅ / 清华 ❌ |
+
+> ⚠️ **仍未定论两点**：① 官方源在**冷缓存**下是否真能下载；② 清华源在真实终端是否也失败。
+> 两个镜像的索引页 `Content-Length` 都约 11.5 KB 且 `Last-Modified` 同为 2024-12-04，**疑似响应被截断**，沙箱因素未排除。
+> 上面那条 `--no-cache-dir` 命令可一次定论。
 
 ```bash
 # 阿里云

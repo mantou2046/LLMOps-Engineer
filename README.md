@@ -55,6 +55,27 @@ python -m venv .venv && source .venv/Scripts/activate
 pip install -r requirements.txt
 ```
 
+### 启用提交前脱敏检查（克隆后必做一次）
+
+本仓库是**公开**的，所以有一道提交前门禁，防止手滑把凭据或内部信息推上去。
+
+```bash
+git config core.hooksPath .githooks
+cp scripts/sensitive_terms.example.txt scripts/sensitive_terms.txt   # 填自己的敏感词
+python scripts/check_sensitive.py --all                              # 手动全树扫一遍
+```
+
+检查内容分三层：
+
+| 层 | 内容 |
+| --- | --- |
+| 内置规则 | 私钥、各类 API Key / Token、JWT、**内网 IP 段**、带口令的连接串、疑似凭据键值 |
+| 自定义词表 | `scripts/sensitive_terms.txt` 里的单位名 / 内网域名 / 真实表名字段名 |
+| CI 兜底 | `.github/workflows/ci.yml` 在 PR 上跑同一脚本，防止本地没装钩子的人绕过 |
+
+> ⚠️ 脚本**只报「文件:行号 + 命中类型」，绝不回显命中的原文** —— 否则检查工具本身就成了泄露渠道。
+> ⚠️ `scripts/sensitive_terms.txt` 被 gitignore，**真实词表只留本地**。
+
 ---
 
 ## 进度
