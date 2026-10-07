@@ -1,6 +1,6 @@
 # 本机环境与已知坑
 
-> 最后实测：**2026-10-07 13:37**
+> 最后实测：**2026-10-07 17:51**
 > ⚠️ 本页结论**带实测时间戳**。代理端口会变、镜像源会挂，**用之前先重跑一遍验证命令**，不要照抄。
 
 ---
@@ -31,12 +31,27 @@ env | grep -i proxy
 > `http_proxy=http://127.0.0.1:8016` 连不通（`curl -x` 5s 超时、`http_code=000`），
 > 导致 **pip 挂起不动**（它老老实实去连这个死代理）。
 >
-> **绕开代理反而全通**（且不慢）：
+> **绕过死代理**（⚠️ 见下方更正）：
 > ```bash
 > unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 > python -m pip install -r requirements.txt
 > ```
 > 直连实测：`pypi.org` 200、`mirrors.aliyun.com` 200、`files.pythonhosted.org` 可达。
+>
+> > [!danger] ⚠️ 2026-10-07 17:40 更正：**`unset` 环境变量并不能真正禁用代理**
+> > 实测 `urllib.request.getproxies()` 在**所有代理环境变量都已 unset** 的情况下，**仍然返回**：
+> > `{'http': 'http://127.0.0.1:9527', 'https': 'http://127.0.0.1:9527', 'ftp': 'http://127.0.0.1:9527'}`
+> > —— 因为 urllib / pip 在环境变量为空时会**回退读 Windows 注册表**
+> > （`HKCU\...\Internet Settings\ProxyServer`，本机 = 9527）。
+> >
+> > **含义**：`unset` 只是把「env 代理」这一层去掉，pip 仍会走**注册表那个代理**。
+> > 想**确认**当前到底走不走代理、走哪个端口，跑：
+> > ```bash
+> > python -c "import urllib.request; print(urllib.request.getproxies())"
+> > ```
+> > **真正**绕过代理的办法（未全部实测，按可靠性排序）：`curl` 用 `--noproxy '*'`；
+> > pip 用 `--proxy ""` 或设置 `no_proxy`；彻底关掉需改注册表（要管理员权限）。
+> > ⚠️ **别把「unset 了就直连了」当成结论** —— 先打印 `getproxies()` 确认。
 >
 > **判据**：pip「卡住不报错」优先怀疑**代理端口死了**，而不是网络不通 —— 先 `curl -x <代理> --max-time 5 https://pypi.org/simple/` 探一下代理本身。
 > **教训**：`env` 里有代理变量 ≠ 代理能用。**「配了」和「通」是两回事。**
@@ -49,25 +64,62 @@ env | grep -i proxy
 
 实测结果：
 
-| 源 | 结果 |
-| --- | --- |
-| PyPI 官方（经代理） | ✅ **可正常下载** |
-| 清华 tuna | ❌ pip 报 `from versions: none` |
-| 阿里云 | ✅ 可正常下载 |
-| 腾讯云 | ✅ 可正常下载 |
+> [!warning] ⚠️ 2026-10-07 17:40 复核：**上一条「清华源不可用」的结论是错的**
+> 真因是**清华源 WAF 拦截了 pip 在 Python 3.13.14 下发出的 User-Agent** —— **与镜像本身无关**。
+> 同一台机器、同一时刻、同一个网络，**换个 Python 版本结论就反了**：
+>
+> | 解释器 | Python | 清华源 |
+> | --- | --- | --- |
+> | 沙箱托管 Python | **3.13.14** | ❌ `No matching distribution found for six` |
+> | 系统 Python `D:\python314` | **3.14.8** | ✅ 正常（列出全部版本） |
+>
+> **触发条件（二分实测，已精确到子串）**：UA 里含 **`"version":"3.13.14"`** → 403。
+> 换成 `3.13.13` / `3.13.15` / `3.13.0` / `3.14.0` / `3.12.0`，或删掉该片段 → 200。
+> ⚠️ **只拦清华** —— 同一条 UA 打官方 / 阿里云 / 腾讯云 / 中科大**全部 200**。
+> 403 响应体是清华自己的中文拦截页（`Server: nginx/1.22.1`，「抱歉，您目前无法访问此页面」）。
+>
+> **已逐一排除**：代理（走 / 不走代理都 403）、请求头（`Accept` / `Accept-Encoding` / `Cache-Control` 逐组测过）、
+> `pip.ini`（不存在）、TLS 中间人（证书是真的 Let's Encrypt）、限流（拦截与放行在测试中交错出现）。
+>
+> ⚠️ **为什么会有这条规则：无法从外部确知**（最可能是该 UA 曾被标记过，属**临时**规则）。
+> → 所以**别把「清华源不能用」写死**，结论必须带**版本号 + 时间戳**。
 
-清华源的失败原因：**返回的索引页疑似被截断**（只列到 `six-1.9.0.tar.gz`，而阿里云同一页面有 `six-1.17.0.whl`；两者 `Content-Length` 都约 11.5 KB、`Last-Modified` 同为 2024-12-04）。
+**实测结果（2026-10-07 17:40，托管 Python 3.13.14 / 系统 Python 3.14.8 双跑）**
 
-**验证命令**（PowerShell；**`--no-cache-dir` 必加**，否则会命中本地缓存、结论失真）：
+| 源 | 3.13.14 | 3.14.8 |
+| --- | --- | --- |
+| PyPI 官方 | ✅ 1.17.0 | ✅ 1.17.0 |
+| 清华 tuna | ❌ **403**（WAF 拦 UA） | ✅ 1.17.0 |
+| 阿里云 | ✅ 1.17.0 | ✅ 1.17.0 |
+| 腾讯云 | ✅ 1.17.0 | ✅ 1.17.0 |
+| 中科大 ustc | ✅ 1.17.0 | ✅ 1.17.0 |
 
-```powershell
-# 官方源（默认）
-python -m pip download --no-deps --no-cache-dir -d $env:TEMP\piptest six
-# 换源（改 --index-url）
-python -m pip download --no-deps --no-cache-dir -d $env:TEMP\piptest -i <url> six
+> ⚠️ **旧结论「清华源返回的索引页疑似被截断」是误判**：curl 拿到的页面**结构完整**（48 个链接、含 `six-1.17.0` 的 wheel 与 sdist、有 `</html>` 与清华的 `<!--SERIAL-->` 页脚）。
+> pip 当时**根本没拿到页面** —— 它在 HTTP 层就被 403 挡了。**「页面看起来不完整」和「客户端没拿到页面」是两回事，别混。**
+
+
+**怎么测（推荐：一条命令跑完所有源）**
+
+```bash
+# ⚠️ 体检脚本在本机 YYDS 库里，**不在本仓库内**（本页整体都是「这台机器」的环境记录，天然不可移植）
+python "E:/Projects/Obsidian/YYDS/.workbuddy-ai/scripts/check_pip_sources.py"
+python "E:/Projects/Obsidian/YYDS/.workbuddy-ai/scripts/check_pip_sources.py" --ua   # 顺带打印 pip 的 UA（这次就是靠它抓到根因）
 ```
 
-**当前结论**：默认直接用官方源；若超时，优先换**阿里云**或**腾讯云**，别默认清华。
+脚本对 5 个源逐个跑 `pip index versions`（**冷缓存**），输出「看到的最高版本」——
+**列不出最新版 = 该源对你不生效**。
+
+**手动单源验证**（**`--no-cache-dir` 必加**，否则会命中本地缓存、结论失真）：
+
+```bash
+# 官方源（默认）
+python -m pip download --no-deps --no-cache-dir -d /tmp/piptest six
+# 换源（改 -i）
+python -m pip download --no-deps --no-cache-dir -d /tmp/piptest -i <url> six
+```
+
+**当前结论**：**五个源都能用**，默认直接用官方源即可；某源报错时先跑一遍 `check_pip_sources.py`，
+并**记下当前的 Python 版本**—— 这次的坑正是「换 Python 版本结论就反」。
 
 **复核记录**
 
@@ -81,8 +133,9 @@ python -m pip download --no-deps --no-cache-dir -d $env:TEMP\piptest -i <url> si
 > ⚠️ **沙箱的网络时通时不通**（10:48 代理通、13:37 代理死但直连通）→ **凡涉及下载的结论，一律以用户真实终端为准**，沙箱结果只作参考。
 > ⚠️ **pip 变慢的原因**：本机 pip 的**默认超时 15s**，而直连单次请求要 10–14s —— 余量极小，偶发重试就会 `ReadTimeout`。**建议在 `pip.ini` 里调大**：`[global]` 段加 `timeout = 120`。
 
-> ⚠️ **仍未定论一点**：清华源在真实终端是否也失败（沙箱侧 10:48 报 `from versions: none`，`Content-Length` 约 11.5 KB 且 `Last-Modified` 为 2024-12-04，**疑似响应被截断**，沙箱因素未排除）。
-> ✅ **已定论**：① 官方源在**冷缓存**下确实能下载 —— 2026-10-07 13:53 `pip install --dry-run --no-cache-dir -r requirements.txt`（**unset 代理后**）成功解析全部 29 个包，`EXIT=0`。
+> ✅ **已定论（2026-10-07 17:40）**
+> ① **官方源在冷缓存下确实能下载** —— 13:53 `pip install --dry-run --no-cache-dir -r requirements.txt`（unset 代理后）成功解析全部 29 个包，`EXIT=0`。
+> ② **清华源在真实解释器下也能用** —— 系统 Python **3.14.8** 跑 `check_pip_sources.py` 得 **5/5 全通**；失败只出现在 **3.13.14**，且是 WAF 拦 UA，与镜像无关。**「仍未定论」项已关闭。**
 
 ```bash
 # 阿里云
