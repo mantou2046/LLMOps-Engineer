@@ -1,0 +1,29 @@
+# 统一换行符：避免 Windows CRLF / BOM 污染容器镜像与脚本
+* text=auto eol=lf
+
+# 明确按文本处理
+*.py   text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.sh   text eol=lf
+Dockerfile text eol=lf
+.gitignore text eol=lf
+
+# 按二进制处理（禁止任何转换）
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.xlsx binary
+*.whl  binary
+*.pt   binary
+*.bin  binary
+*.safetensors binary
+
+# 让 git 在 diff 里不把 notebook 的输出当正文
+*.ipynb -text -diff

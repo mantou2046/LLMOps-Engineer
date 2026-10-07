@@ -1,0 +1,77 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 测试 / lint 缓存
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---- 密钥与配置 ----
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+service-account*.json
+
+# ---- 数据（只保留样例与 .gitkeep）----
+data/*
+!data/.gitkeep
+!data/README.md
+data/raw/
+data/processed/
+*.parquet
+*.csv.gz
+*.sqlite
+*.db
+*.duckdb
+
+# ---- ML 产物 ----
+mlruns/
+mlartifacts/
+models/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+
+# ---- 向量库本地文件 ----
+*.faiss
+chroma/
+pgvector_data/
+
+# ---- Notebook ----
+.ipynb_checkpoints/
+*.ipynb.bak
+
+# ---- 编辑器 / 系统 ----
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# ---- 日志与临时 ----
+logs/
+*.log
+tmp/
+.tmp/
