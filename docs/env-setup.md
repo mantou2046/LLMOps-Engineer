@@ -24,6 +24,9 @@ env | grep -i proxy
 | --- | --- | --- | --- |
 | 2026-10-07 10:48 | 14395 | 9527 | ✅ 通 |
 | 2026-10-07 13:37 | **8016** | 9527 | ❌ **死端口**（连接超时） |
+| 2026-10-07 17:51 | **3315** | 9527 | ❌ **死端口**；**注册表 9527 仍活**（走它打 github.com → 200） |
+
+**⚠️ 结论：env 端口不可信，注册表那个 9527 才是稳的。**
 
 两者不一致是**正常现象**，别以为是配错了。**注册表端口稳定、env 端口每次会话可能不同** —— 脚本里要读端口，读 `getproxies()`（即 env）而不是注册表。
 
@@ -55,6 +58,38 @@ env | grep -i proxy
 >
 > **判据**：pip「卡住不报错」优先怀疑**代理端口死了**，而不是网络不通 —— 先 `curl -x <代理> --max-time 5 https://pypi.org/simple/` 探一下代理本身。
 > **教训**：`env` 里有代理变量 ≠ 代理能用。**「配了」和「通」是两回事。**
+
+### 1.1 ⚠️ `git push` 必须走代理，且 env 端口常是死的（2026-10-07 17:51 实测）
+
+**症状**：`git push` 报 `schannel: server closed abruptly (missing close_notify)`，
+或 `Failed to connect to github.com:443 after 21154 ms`。
+
+**根因**：
+- **`github.com` 直连不通**（`curl --noproxy '*'` → **000 超时**）
+- 而 git 默认读 **env** 里的代理端口 —— 今天那个是 **3315，已经死了**
+- **注册表里的 `9527` 是活的**（走它打 `github.com` → **200**）
+
+**修法：显式把代理指到注册表端口**
+
+```bash
+git -c http.proxy=http://127.0.0.1:9527 -c https.proxy=http://127.0.0.1:9527 push origin main
+```
+
+> 💡 想一劳永逸，写进本仓库配置（**只影响这个仓库**）：
+> ```bash
+> git config http.proxy http://127.0.0.1:9527
+> git config https.proxy http://127.0.0.1:9527
+> ```
+> ⚠️ 但**端口哪天再变就得改**，所以更稳的是「推之前先探活」。
+
+**探活一行**（推之前跑，确认端口活着）：
+
+```bash
+curl -x http://127.0.0.1:9527 --max-time 5 -sS -o /dev/null -w "%{http_code}\n" https://github.com
+```
+
+**⚠️ 一个反直觉点**：`api.github.com` **直连可达**（200），但 `github.com` **直连不通**。
+所以「`gh` 命令能用」**不代表**「`git push` 能用」—— 两者走的是不同域名。
 
 ---
 
