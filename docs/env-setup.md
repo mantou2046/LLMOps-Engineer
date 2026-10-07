@@ -45,6 +45,9 @@ python -m pip download --no-deps -d /tmp/t six
 
 **当前结论**：默认直接用官方源；若超时，优先换**阿里云**或**腾讯云**，别默认清华。
 
+> ⚠️ **待复核**：上表在**沙箱环境**内测得。两个镜像的索引页 `Content-Length` 都约 11.5 KB 且 `Last-Modified` 同为 2024-12-04，**疑似响应被截断**，可能含沙箱因素。
+> **请在自己终端重跑一次上面的验证命令**确认；若清华源在你这边正常，把上表改回来即可。
+
 ```bash
 # 阿里云
 pip install <pkg> -i https://mirrors.aliyun.com/pypi/simple
@@ -54,13 +57,23 @@ pip install <pkg> -i https://mirrors.cloud.tencent.com/pypi/simple
 
 ---
 
-## 3. HuggingFace 镜像（**当前未设置**）
+## 3. HuggingFace 镜像（✅ 2026-10-07 已配置）
 
-`HF_ENDPOINT` 目前**未配置**，需要自己加：
+`HF_ENDPOINT` **已写入用户级环境变量**（注册表 `HKCU\Environment` 已核实）：
+
+```
+HF_ENDPOINT = https://hf-mirror.com
+```
+
+⚠️ **当前已开的终端不会继承** —— `setx` 只对新进程生效，**新开一个终端**再用。
+
+连通性实测：`https://hf-mirror.com` 返回 **307**（正常跳转），绕代理与走代理均可。
+
+如需重设或撤销：
 
 ```bash
-export HF_ENDPOINT=https://hf-mirror.com      # 当前会话
-setx HF_ENDPOINT "https://hf-mirror.com"      # 持久化（新开终端生效）
+setx HF_ENDPOINT "https://hf-mirror.com"     # 设置
+reg delete HKCU\Environment /v HF_ENDPOINT /f  # 撤销（reg.exe 在本会话可能被拦）
 ```
 
 已知坑：
