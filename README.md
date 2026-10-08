@@ -108,6 +108,18 @@ cp .env.example .env      # 填 POSTGRES_PASSWORD
 bash scripts/verify_d2.sh # 一条命令：建两个镜像 + 比体积 + 验非 root + 验 pgvector
 ```
 
+结束后善后（**保留数据卷**）：
+
+```bash
+docker compose --env-file .env -f infra/compose.yml down
+```
+
+> ⚠️ **手动敲 compose 命令时务必带 `--env-file .env`**（脚本内部已封装）。
+> 否则 compose 找不到 `.env`，会报一长串
+> `required variable POSTGRES_PASSWORD is missing a value` —— 看起来像配置坏了，
+> 其实只是**环境文件没被加载**。`docker compose` 默认只从当前工作目录找 `.env`，
+> 换个目录执行就失效。
+
 ### 多阶段省在哪（原理）
 
 镜像体积来自**层**。单阶段把所有东西都堆在最终镜像里：

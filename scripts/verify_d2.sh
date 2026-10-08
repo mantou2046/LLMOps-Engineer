@@ -24,6 +24,12 @@ IMAGE_MULTI="llmops-api:0.1.0"
 IMAGE_NAIVE="llmops-api:naive"
 SIZE_LIMIT_MB=200
 
+# ⚠️ 显式传 --env-file，不依赖「CWD 恰好是仓库根」这个隐含前提。
+#    踩坑：在别处调 `docker compose -f infra/compose.yml down` 时，
+#    compose 找不到 .env → 报一堆 "required variable ... is missing"，
+#    看起来像配置坏了，其实只是没加载环境文件。
+COMPOSE=(docker compose --env-file .env -f infra/compose.yml)
+
 PASS=0
 FAIL=0
 note() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -118,7 +124,7 @@ fi
 note "验收 3/3 · pgvector 可连 + 向量读写"
 # =============================================================================
 info "启动 Postgres + pgvector..."
-docker compose -f infra/compose.yml up -d >/dev/null 2>&1 || bad "compose up 失败"
+"${COMPOSE[@]}" up -d >/dev/null 2>&1 || bad "compose up 失败"
 
 info "等待 healthy（最多 90s）..."
 HEALTHY=0
@@ -131,7 +137,7 @@ if [ "$HEALTHY" = "1" ]; then
   ok "postgres 状态 healthy"
 else
   bad "postgres 未在 90s 内 healthy（当前：${ST:-unknown}）"
-  docker compose -f infra/compose.yml logs --tail 30 postgres | sed 's/^/       /'
+  "${COMPOSE[@]}" logs --tail 30 postgres | sed 's/^/       /'
 fi
 
 # 优先用容器内的 psql 跑一遍 SQL（不依赖宿主 python 装 psycopg）
@@ -178,7 +184,7 @@ note "结果汇总"
 printf '     通过 %d 项，失败 %d 项\n' "$PASS" "$FAIL"
 if [ "$FAIL" -eq 0 ]; then
   printf '\033[1;32m     D2 验收全部通过 ✅  可以打卡了\033[0m\n'
-  printf '     善后： docker compose -f infra/compose.yml down    # 保留数据\n'
+  printf '     善后： docker compose --env-file .env -f infra/compose.yml down    # 保留数据\n'
   exit 0
 else
   printf '\033[1;31m     D2 验收存在失败项 ❌  见上方明细\033[0m\n'
