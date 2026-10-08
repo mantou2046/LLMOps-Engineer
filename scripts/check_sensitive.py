@@ -47,13 +47,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             r"\b(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b"
         ),
     ),
-    (
-        "带口令的连接串",
-        re.compile(
-            r"(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|oracle)"
-            r"://[^\s:@/]+:[^\s@/]+@"
-        ),
-    ),
+    # 连接串单独处理（见 scan_file：要判 user/pass 是否占位符），此处不列。
 ]
 
 # 键值型：**值必须非空**才报（.env.example 里是空占位，不该误伤）
@@ -62,6 +56,49 @@ KV_NAME = (
     r"|ACCESS_KEY|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_]*)"
 )
 KV = re.compile(KV_NAME + r"\s*[:=]\s*[\"']?([^\s\"'#,;]{8,})")
+
+# ---------------------------------------------------------------- 占位符豁免
+# 目的：区分「真实凭据」与「对凭据的引用 / 模板」，后者不该拦。
+# 背景（2026-10-08）：加 Dockerfile / compose 时，合法的占位写法被大量误报 ——
+#   compose:  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+#   python :  "postgresql://{u}:{p}@{h}:{port}/{db}"
+#   doc    :  postgresql://user:password@host:5432/db
+# 若不放行，每次提交都得 --no-verify，门禁形同虚设。
+# **放宽的只是「形式上不可能是真凭据」的写法**，真凭据（一串具体随机字符）一条都没放过。
+PLACEHOLDER_RX = [
+    re.compile(r"^\$\{"),                            # shell / compose 引用：${VAR}
+    re.compile(r"^\$\("),                            # 命令替换：$(...)
+    re.compile(r"^\{[^}]*\}$"),                      # python / k8s 模板：{u} / {password}
+    re.compile(r"^<[^>]*>$"),                        # 文档占位：<your-password>
+    re.compile(r"^\.\.\.$|^\*+$|^-+$|^x+$", re.IGNORECASE),   # 省略号 / 掩码
+    re.compile(r"^(?i:your|my|some|the|change|replace|insert|enter|todo|example|dummy|fake|test)[-_]"),
+    re.compile(r"(?i)^(password|passwd|secret|token|changeme|placeholder|redacted|none|null)$"),
+    # 文档示例里「变量名当值」：user / password / localhost ...
+    re.compile(r"^(?i:user|username|pass|pwd|host|localhost|dbname|database|port|dsn)$"),
+    # 形如 user:password@（占位用户名 + 占位口令）
+    re.compile(r"(?i)^[A-Za-z_][\w.]*:[A-Za-z_][\w.]*@?$"),
+]
+
+
+def is_placeholder(value: str) -> bool:
+    """判断一个「值」是否只是占位符 / 引用，而非真实凭据。
+
+    ⚠️ 判定从严：只放过「形式上不可能是真凭据」的写法。
+    真实凭据是随机字符串，不会长成 your-password / ${VAR} / <xxx> 这样。
+    """
+    v = value.strip().strip("\"'")
+    if not v:
+        return True
+    if "${" in v or "{{" in v or "<" in v:      # 未展开的模板标记
+        return True
+    return any(rx.search(v) for rx in PLACEHOLDER_RX)
+
+
+# 带口令的连接串：命中后再判 user/pass 是否占位符，是则放行
+CONN_RX = re.compile(
+    r"(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp|oracle)"
+    r"://([^\s:@/]+):([^\s@/]+)@"
+)
 
 # ---------------------------------------------------------------- 跳过规则
 SKIP_DIRS = {
@@ -161,14 +198,23 @@ def scan_file(p: Path, patterns: list[tuple[str, re.Pattern[str]]]) -> list[str]
 
     rel = p.relative_to(ROOT).as_posix()
     for lineno, line in enumerate(text.splitlines(), start=1):
+        # 1) 通用模式
         for name, rx in patterns:
             m = rx.search(line)
             if m:
                 findings.append(f"{rel}:{lineno}  命中「{name}」  {mask(m.group(0))}")
-                break  # 一行只报一次，避免噪音
+                break
         else:
+            # 2) 连接串：user / pass 都是占位符则放行
+            mc = CONN_RX.search(line)
+            if mc and not (is_placeholder(mc.group(1)) and is_placeholder(mc.group(2))):
+                findings.append(
+                    f"{rel}:{lineno}  命中「带口令的连接串」  {mask(mc.group(0))}"
+                )
+                continue
+            # 3) 键值型：值为占位符则放行
             m = KV.search(line)
-            if m:
+            if m and not is_placeholder(m.group(2)):
                 findings.append(
                     f"{rel}:{lineno}  命中「疑似凭据键值」  键={m.group(1)}  值={mask(m.group(2))}"
                 )

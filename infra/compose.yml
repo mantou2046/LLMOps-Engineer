@@ -1,0 +1,97 @@
+# =============================================================================
+# 本地开发编排：Postgres 16 + pgvector
+# -----------------------------------------------------------------------------
+# 八周计划 W1 D2 产出物。目标是「一条命令起一个带向量能力的数据库」，
+# 后面 W6 的 RAG 检索直接用它，不用再折腾环境。
+#
+# 用法（在仓库根执行）：
+#   cp .env.example .env            # 第一次：填 POSTGRES_PASSWORD
+#   docker compose -f infra/compose.yml up -d
+#   docker compose -f infra/compose.yml ps        # 等 healthy
+#   docker compose -f infra/compose.yml down      # 停（数据保留在命名卷里）
+#   docker compose -f infra/compose.yml down -v   # 停并删数据（慎用）
+#
+# W1 D4 会在此基础上加：ConfigMap/Secret 化的配置外置、Ingress；W2 上云时迁到托管 PG。
+# =============================================================================
+
+name: llmops-engineer
+
+services:
+  # ---------------------------------------------------------------------------
+  # Postgres + pgvector
+  # ---------------------------------------------------------------------------
+  postgres:
+    # ⚠️ 用官方 pgvector 镜像：pgvector 是第三方扩展，官方 postgres 镜像里没有。
+    #    固定 tag（不用 latest）—— 保证半年后拉到的还是同一个东西。
+    image: pgvector/pgvector:pg16
+    container_name: llmops-postgres
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required - check your .env}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      # ⚠️ 不写默认值：漏配密码时应当「启动失败并报错」，而不是悄悄起一个空密码库
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - copy .env.example to .env}
+      # 初始化时的编码与排序（中文制度文档要能正确排序）
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      # 时区对齐，避免日志时间戳对不上
+      TZ: Asia/Shanghai
+
+    ports:
+      # 只绑本机回环 —— 不要把数据库暴露到局域网/公网
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+    volumes:
+      # 命名卷：`down` 不删数据，`down -v` 才删 —— 这是 D4「删掉 Pod 数据还在」的本地版预演
+      - pgdata:/var/lib/postgresql/data
+      # 初始化 SQL：只在「卷为空」的首次启动执行一次；改文件不会重跑
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      # ⚠️ 用 exec 形式而不是 shell 形式：
+      #    shell 形式（CMD-SHELL pg_isready -U $POSTGRES_USER）会走 shell 变量展开，
+      #    在某些镜像里 $POSTGRES_USER 未导出导致探测恒失败。这里显式写出。
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+    restart: unless-stopped
+
+    # 资源上限：本机可用内存约 18GB，给数据库留 2G 上限，别让容器把机器吃干
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # ---------------------------------------------------------------------------
+  # 可选：pgAdmin（图形化管理）
+  # 默认不启动 —— 用 profile 控制，避免日常白占内存
+  #   docker compose -f infra/compose.yml --profile tools up -d
+  # ---------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:8.13
+    container_name: llmops-pgadmin
+    profiles: ["tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@local.dev}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD is required when using tools profile}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "127.0.0.1:5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+# -----------------------------------------------------------------------------
+# 命名卷 —— 显式声明比隐式创建好：`docker volume ls` 里能看出归属
+# -----------------------------------------------------------------------------
+volumes:
+  pgdata:
+    name: llmops-pgdata
+  pgadmin-data:
+    name: llmops-pgadmin-data

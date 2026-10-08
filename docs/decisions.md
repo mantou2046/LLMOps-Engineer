@@ -85,6 +85,206 @@
 
 ---
 
+## 2026-10-08 · 容器化基础：多阶段构建 + 非 root + 固定 tag
+
+**背景**
+W1 D2 要把服务容器化。容器化本身不难，难的是「生产可用的容器化」——面试官不会问「你会不会写 Dockerfile」，而会问「你的镜像为什么这么大 / 为什么以 root 跑」。所以在第一天就把这几条钉死，后面所有服务都照这个标准走。
+
+**选项**
+1. 单阶段 + 完整基础镜像（`python:3.12`）—— 最省事，镜像约 1GB，root 运行
+2. 单阶段 + slim 镜像 —— 体积降下来，但编译依赖仍留在最终镜像里
+3. **多阶段（builder + runtime）+ slim + 非 root + 固定小版本 tag**
+
+**选择**：方案 3
+
+**理由**
+- **BP6 多阶段**：编译期需要 `build-essential` / `gcc`（装 wheel 用），运行期**一个都不需要**。多阶段让最终镜像只带 venv，编译器留在上一阶段 —— 这同时解决了**体积**和**攻击面**两个问题（少一个 gcc 就少一批 CVE）。
+- **BP7 非 root**：Docker 默认以 root 跑容器内进程。一旦应用被越权，root 权限是容器逃逸的跳板。建 `appuser`（UID 1001）成本极低，收益是实质性的安全隔离。
+- **BP2 固定 tag**：`latest` 是动态的，今天和下月构建出的镜像可能不同，破坏**可重现性**。用 `python:3.12.7-slim-bookworm` —— 连 Debian 代号都锁。
+- **为什么 Python 3.12 而不是本机的 3.13/3.14**：3.12 的第三方生态（尤其是后续要用的 RAGAS、Langfuse SDK）兼容性最稳。**本机版本和容器内版本不一致是正常的**，容器化的意义之一就是隔离宿主差异。
+
+**代价**
+- Dockerfile 复杂度上升，新手读起来要多花几分钟
+- 基础镜像锁死后，安全补丁需要手动 bump（这是「可重现」的必然代价）
+- 加了 `Dockerfile.naive` 作为反面教材 —— 多维护一个文件，换来的是**体积对比有实测数据**而不是拍脑袋说「省了 70%」
+
+**复核条件**
+若 W5 接 CI 后发现镜像构建时间过长（多阶段要建两次环境），再评估是否用 BuildKit cache mount 加速，而不是退回单阶段。
+
+---
+
+## 2026-10-08 · 用 compose 而非 K8s 起步（本地开发环境）
+
+**背景**
+D2 要起一个 Postgres + pgvector。工具选择上，compose 和 K8s 都能做。
+
+**选择**：**本地开发用 compose，W2 上云/上集群时再迁到 K8s**
+
+**理由**
+- **关注点分离**：D2 的学习目标是「容器化 + 镜像优化」，不是「编排」。此刻引入 K8s 会让「数据库起不来」和「YAML 写错了」两类问题混在一起，排错成本翻倍。W1 D3–D5 专门学 K8s，那时再引入。
+- **compose 是单机多容器的正确工具**：它解决的是「本地一键起一套依赖」，这正是开发环境的需求。用 K8s 做这件事属于杀鸡用牛刀。
+- **迁移是自然的**：compose 里的配置（镜像 tag、环境变量外置、健康检查、卷持久化）在 K8s 里**语义一一对应**（Deployment / ConfigMap+Secret / probes / PVC）。D4 讲 ConfigMap/Secret/PVC 时，可以直接拿 compose.yml 做对照讲。
+
+**代价**
+- 要维护两套编排（compose + K8s 清单），但两者用途不同，不算重复
+- compose 的 `depends_on: condition: service_healthy` 在 K8s 里没有直接等价物（要用 initContainer），迁移时需要改写
+
+**复核条件**
+若本地容器数量超过 5 个、或需要多节点模拟，则改用 kind/minikube 做本地环境。
+
+---
+
+## 2026-10-08 · 数据库初始化用 initdb 脚本，而非在应用里建表
+
+**背景**
+pgvector 需要 `CREATE EXTENSION vector` 才能用。这个动作放哪里？
+
+**选项**
+1. 应用启动时检查并创建扩展
+2. `docker-entrypoint-initdb.d/` 里的初始化 SQL
+3. 用 Alembic 等迁移工具
+
+**选择**：**方案 2（当前阶段）**，W3 起迁移到方案 3
+
+**理由**
+- **扩展是「数据库级」的东西，不是「应用级」**。让应用（一个普通权限用户）去 `CREATE EXTENSION` 需要超级用户权限，这在生产里是权限模型上的倒退。
+- **方案 2 零成本**：官方 postgres 镜像原生支持，挂个目录即可，不需要引入任何依赖。
+- **为什么 W3 要换到迁移工具**：initdb 脚本**只在数据卷为空时执行一次**。一旦开始改表结构（W3 做实验追踪、W6 加检索表），必须要有版本化迁移，否则「同事拉下代码但表结构是旧的」会成为常态。
+
+**代价**
+- 现在改 schema 要 `down -v` 重建（丢数据），阶段内可接受
+- 写了明确的注释说明这个限制，避免以后误以为改 SQL 就能生效
+
+**复核条件**
+进入 W3 第一次改表结构时，必须换成迁移工具，不能继续靠 initdb。
+
+---
+
+## 2026-10-08 · 脱敏门禁加「占位符豁免」，而不是放宽规则
+
+**背景**
+加 Dockerfile / compose / 验证脚本时，门禁报出 4 处命中，**全是误报**：
+
+| 位置 | 内容 | 性质 |
+| --- | --- | --- |
+| `infra/compose.yml` | `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}` | 对凭据的**引用** |
+| `infra/compose.yml` | `PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?...}` | 同上 |
+| `infra/check_pgvector.py` | `"postgresql://{u}:{p}@{h}:{port}/{db}"` | python 模板串 |
+| `infra/check_pgvector.py` | docstring 里的用法示例 | 文档 |
+
+**问题**：门禁一动就报警，人会养成 `--no-verify` 的习惯 —— **那时门禁等于不存在**。
+这是安全工具的经典失效模式：不是「不够严」，而是「太吵以至于被绕过」。
+
+**选项**
+1. 关掉相关规则 —— 检出能力永久损失，不可接受
+2. 每次误报手动 `--no-verify` —— 等于放弃门禁
+3. **加一层「占位符识别」**：形式上不可能是真凭据的写法放行，其余照拦
+
+**选择**：方案 3
+
+**理由**
+- **真凭据有可判别的形态**：它是随机字符串（`hunter2Xk9pQz`），**不会**长成 `${VAR}` / `{u}` / `<your-password>` / `changeme`。
+  「形式判据」能把两者干净地分开，而不是靠降低强度。
+- **放行名单刻意写窄**：只认 `${`、`{{`、`<`、`{var}`、`your-*`/`test-*` 前缀、纯掩码（`...`/`xxx`）、少数通用词（`password`/`localhost`）。
+  **没有**把 `llmops` 这类「像真用户名的词」加进白名单 —— 那样会削弱保护。
+- **改了文档而不是改规则**：最后 1 处残留命中在用法示例里（形如 `postgresql://<user>:<password>@<host>` 这种**真实感过强**的示例）。用户名这类词在真凭据里也很常见，
+  若为它加豁免就是真正的降级。**正确做法是让示例写成明确的占位形式**（`<user>:<password>@<host>`），
+  即「消除误报的根源」而不是「让规则闭嘴」。
+
+**验证（必须有对照，否则不敢说没降级）**
+
+| 组 | 用例 | 结果 |
+| --- | --- | --- |
+| A · 占位符放行 | `${VAR}` / `{u}` / `<x>` / `changeme` / `user` / `xxx` … 共 13 例 | 13/13 放行 ✅ |
+| B · 真凭据拦截 | `hunter2Xk9pQz` / `P@ssw0rd2026local` / `sk-abc…` … 共 5 例 | **5/5 拦截，0 漏报** ✅ |
+| C · 端到端 | 4 例占位全放行；4 例真凭据（连接串 / 键值 / API Key / 内网 IP）全拦 | ✅ |
+
+全树扫描从「4 处误报」变为「0 处命中」。
+
+**代价**
+- 豁免名单**需要维护**：若将来某种新写法被误报，应优先改写法，实在不行才扩名单
+- 存在理论上的绕过面（攻击者可把真凭据伪装成 `{...}` 形式）—— 但**门禁防的是「手滑」，不是「恶意隐藏」**，
+  这个攻击模型不在设计目标内
+
+**复核条件**
+若再出现一次「为绕过误报而 `--no-verify`」，说明豁免判断仍有缺口 → 补判据，而不是关规则。
+
+---
+
+## D5 · 基础镜像选 alpine（musl）而不是 slim-bookworm（glibc）
+
+**日期**：2026-10-08 · W1 D2
+
+**背景**
+D2 验收硬指标之一是「最终镜像 < 200 MB」。用 `python:3.12.7-slim-bookworm` 做基础层时，
+多阶段已优化到 **247 MB**，剩余体积拆解如下：
+
+| 组成 | 体积 |
+| --- | --- |
+| `python:3.12.7-slim-bookworm` 基础层 | 176.5 MB |
+| venv（已删 pip/setuptools/wheel） | ~71 MB |
+| curl（HEALTHCHECK 用） | ~4 MB |
+
+**问题**：光基础层就占 176.5 MB，**留给应用的预算不足 24 MB —— 物理上不可能达标**。
+这不是优化技巧问题，是选型问题。
+
+**选项**
+1. 接受 247 MB，把验收指标改成 < 300 MB —— **修改指标来迁就实现，是最坏的一种自我欺骗**
+2. 用 distroless / scratch 自建 —— 体积更小（~60 MB），但要自己解决 libc、CA 证书、时区，且没有 shell 无法 `docker exec` 排查
+3. **换 `python:3.12-alpine`（79.1 MB）** —— 保留完整 shell 与包管理器，调试体验不变
+
+**选择**：方案 3
+
+**理由**
+- 净省约 **97 MB 基础层体积**，实测最终 **129.9 MB**，余量 70 MB（不是「擦线过」，留了后续加依赖的空间）
+- 仍带 `sh` 和 `apk`，出问题时 `docker exec -it <c> sh` 能进去查 —— distroless 做不到这点，
+  对一个**还在快速迭代的学习项目**来说，可调试性 > 极限体积
+- **前提是验证过的，不是赌的**：alpine 用 musl libc，带 C 扩展的包若无 musllinux wheel 就必须现场编译，
+  为编译装进去的 `gcc` + `musl-dev` 会把省下的体积吃回去。所以动手前先跑了一次真实安装：
+  ```bash
+  docker run --rm python:3.12-alpine sh -c '\
+    python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt'
+  ```
+  全部成功，无 sdist 编译。构建日志可佐证命中的是 musl wheel：
+  `uvloop-0.23.0-cp312-cp312-musllinux_1_2_x86_64.whl`、
+  `watchfiles-1.3.0-cp310-abi3-musllinux_1_1_x86_64.whl`、
+  `websockets-17.2-cp312-cp312-musllinux_1_2_x86_64.whl`
+
+**连带修改（选型变了，周边必须跟着变）**
+
+| 项 | slim-bookworm | alpine | 原因 |
+| --- | --- | --- | --- |
+| 包管理器 | `apt-get` + `rm -rf /var/lib/apt/lists/*` | `apk` / 换源改 `/etc/apk/repositories` | —— |
+| 建用户 | `groupadd`/`useradd` + 长选项 | `addgroup`/`adduser` + **短选项**（busybox 不认 `--uid`/`--gid`） | busybox 版工具集 |
+| HEALTHCHECK | `curl -fsS` | **`wget -q -T 3 --spider`** | **alpine 无 curl** |
+| builder 装编译器 | 可装（不影响最终镜像） | **刻意不装** | 依赖全是 wheel，装了纯浪费；哪天需要编译会立刻报错 |
+
+⚠️ **runtime 不装 curl 是个有意识的取舍**：为「让 curl 可用」而 `apk add curl` 会连带
+`ca-certificates` 等约 4~8 MB，与体积目标矛盾。用 busybox 自带 wget 零成本解决。
+
+**代价 / 风险**
+- **musl 与 glibc 的行为差异**：某些依赖在 musl 下有细微差别（如 DNS 解析、`getaddrinfo`、locale 支持）。
+  本项目当前只用到网络 + JSON，无影响
+- **未来可能被迫回退**：若引入只在 glibc 下发预编译包的依赖（典型如某些版本的 `oracledb`、
+  部分科学计算栈），alpine 上要么编译失败要么需要额外适配
+  → **回退路径明确**：把两个 stage 的 `FROM` 换回 `python:3.12-slim-bookworm`，
+  恢复 apt 与 `groupadd`/`useradd` 写法即可，改动集中在单个文件
+
+**复核条件**
+1. 引入任何新的带 C 扩展的依赖时，先确认有 musllinux wheel；没有则评估是否需要回退
+2. 若构建时间因 alpine 下的现场编译而显著变长，说明 wheel 覆盖出现缺口 → 重新评估
+
+**顺带记录 · 一个被这次选型暴露的通用教训**
+
+优化过程中我曾把「删 pip/setuptools」写进 **runtime 段**，镜像**从 270 MB 涨到 284 MB**。
+原因：`COPY --from=builder /opt/venv` 那一层已含 pip，后面的 `RUN rm` 只加了个 overlayfs
+**删除标记（whiteout）**，底层数据仍在。挪回 **builder 段**（装完即删）后降到 247 MB。
+
+> **「把清理放到后面」是错的直觉 —— 清理要放在「数据进入镜像之前」。**
+> 判断方法很简单：问自己「这条 rm 是在哪一层的**下方**还有没有副本」。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [ ] 为什么用 Helm 而不是裸 YAML（W2）

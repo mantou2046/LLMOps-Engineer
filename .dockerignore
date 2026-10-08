@@ -1,0 +1,90 @@
+# =============================================================================
+# .dockerignore —— 缩小构建上下文（BP5）
+# -----------------------------------------------------------------------------
+# ⚠️ 位置很关键：Docker 只认「构建上下文根目录」的 .dockerignore。
+#    本仓库的构建命令是 `docker build -f app/Dockerfile .`（上下文 = 仓库根），
+#    所以本文件必须放在仓库根，不是 app/ 下。
+#
+# 作用有两层，别只想到第一层：
+#   1. 体积 —— 上下文要打包传给 daemon，data/ 与 .git/ 动辄几十上百 MB
+#   2. 安全 —— 没有它，`COPY . .` 会把 .env（模型密钥、数据库口令）带进镜像层
+#      ⚠️ 镜像层是「可提取的」：即使后续 RUN 删掉文件，它仍留在历史层里可被 pull 回来
+#
+# 验证效果：`docker build -f app/Dockerfile . 2>&1 | grep "transferring context"`
+#   加之前 vs 加之后，看 "transferring context: XkB" 的差值。
+# =============================================================================
+
+# ---- 版本控制（上下文里最容易被忽略的大块头）----
+.git
+.gitignore
+.gitattributes
+.github
+.githooks
+
+# ---- 密钥与本地配置（安全第一）----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+service-account*.json
+scripts/sensitive_terms.txt
+
+# ---- Python 环境与缓存（宿主机会转成对应的 Linux 版本，绝不能拷进镜像）----
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# ---- 数据：镜像里不该有数据，数据在卷里 ----
+data
+notebooks
+*.parquet
+*.csv.gz
+*.sqlite
+*.db
+*.duckdb
+
+# ---- ML 产物与向量库本地文件 ----
+mlruns
+mlartifacts
+models
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+*.faiss
+chroma
+pgvector_data
+
+# ---- 文档与评估（运行镜像不需要）----
+docs
+evals
+README.md
+*.md
+!app/README.md
+
+# ---- 编辑器 / 系统噪音 ----
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# ---- 日志与临时 ----
+logs
+*.log
+tmp
+.tmp

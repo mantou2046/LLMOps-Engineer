@@ -222,3 +222,29 @@ reg delete HKCU\Environment /v HF_ENDPOINT /f  # 撤销（reg.exe 在本会话�
 - 容器内换行符：`.gitattributes` 已设 `* text=auto eol=lf`，避免 BOM / CRLF 污染镜像
 - 会话是**普通用户**，`sc.exe` / `reg.exe` / `tasklist.exe` / `schtasks.exe` 会被拦
 - PowerShell 工具不返回 stdout → 用 Bash + Python `winreg`
+- ⚠️ **OS 判据**：本机是 **Windows 11 26H2（build 26300）**，但注册表 `ProductName` **仍写「Windows 10」**（微软遗留值）。
+  **唯一判据是 `CurrentBuild` ≥ 22000。**
+
+---
+
+## 6. 容器运行时（2026-10-08 起）
+
+> 完整安装过程与踩坑见 [`infra/DOCKER-SETUP-Win11.md`](../infra/DOCKER-SETUP-Win11.md)。
+
+| 项 | 状态 |
+| --- | --- |
+| CPU 虚拟化 / Hyper-V 平台 | ✅ 齐全且已启用 |
+| WSL2 | ✅ 已装（Ubuntu / Version=2 / DefaultUid=1000） |
+| Docker Desktop | 安装包已就绪，安装中 |
+
+**几个容易踩的点**：
+
+- ⚠️ **WSL 服务名变了**：新版是 **`WslService`**（Start=2 自动），**旧的 `LxssManager` 已不存在**。
+  用 `LxssManager` 判断「WSL 是否安装」会**误判为未装**。
+- ⚠️ **装完 Docker Desktop 必须开 WSL 集成**（Settings → Resources → WSL Integration → 勾发行版），
+  否则 Windows 侧能用 `docker` 而 **WSL 里用不了** —— 而 W1 D3 起要在 WSL 里跑 kind/minikube。
+- ⚠️ **`.wslconfig` 要配**：无此文件时 WSL2 默认可占用约一半物理内存，与 Docker 抢内存易 OOM。
+- ⚠️ **官方 `desktop.docker.com` 走代理可下**（实测 ~215 KB/s）；`docker.com` 主站因
+  证书吊销检查失败（`CRYPT_E_REVOCATION_OFFLINE`）不可达，但**不影响下载 CDN**。
+  国内镜像站（阿里云 / 清华）**没有 Docker Desktop 包**，只有 2017–2021 的 docker-ce 老二进制。
+

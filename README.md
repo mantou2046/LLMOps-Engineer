@@ -50,6 +50,100 @@ LLMOps-Engineer/
 
 ---
 
+## 镜像体积对比（W1 D2 产出）
+
+> 面试常问「你怎么优化镜像」。答案不能是「用了多阶段构建」，而要有**实测数字**。
+> 本节数字由 `bash scripts/verify_d2.sh` 现场测出，可复现。
+
+**对比口径**：同一份代码，两个 Dockerfile —— `app/Dockerfile`（多阶段 + alpine + 非 root）vs `app/Dockerfile.naive`（单阶段 + 完整镜像 + root，**仅作反面教材**）。
+
+| 镜像 | 基础镜像 | 构建方式 | 运行用户 | 体积 |
+| --- | --- | --- | --- | --- |
+| `llmops-api:naive` | `python:3.12`（完整版） | 单阶段，`COPY . .` | root | **1655.1 MB** |
+| `llmops-api:0.1.0` | `python:3.12-alpine` | 多阶段，精确 COPY | `appuser` | **129.9 MB** |
+| **减少** | | | | **92.2%（省 1525.2 MB）** |
+
+> 基础层参考值（`docker image inspect` 实测）：`python:3.12-alpine` 79.1 MB / `python:3.12.7-slim-bookworm` 176.5 MB / `python:3.12` 完整版 ~900 MB。
+> 最终镜像相对 alpine 基础层只净增 **50.7 MB**，即「venv 66.9 MB 去掉 pip/setuptools/wheel 之后」+ 应用代码。
+
+**为什么最终选了 alpine 而不是 slim**（这是本轮优化里最有价值的一段）
+
+一开始用 `python:3.12.7-slim-bookworm` 做基础层，优化到 **247 MB** 就压不动了 ——
+因为 **slim 基础层本身就占 176.5 MB，物理上不可能满足「< 200MB」**。于是换 `python:3.12-alpine`：
+
+| | slim-bookworm | alpine |
+| --- | --- | --- |
+| 基础层 | 176.5 MB | **79.1 MB** |
+| 最终镜像 | 247 MB | **129.9 MB** |
+| 是否达标 < 200MB | ❌ | ✅（余量 70 MB） |
+
+换 alpine 的唯一风险是 **musl libc 而非 glibc** —— 带 C 扩展的包如果没有 musllinux wheel，
+就得在镜像里装 `gcc` + `musl-dev` 现场编译，把省下的体积全吃回去。
+**所以动手前先验证，而不是构建失败了再发现**：
+
+```bash
+# 在 alpine 里跑一次真实安装，不装任何编译器
+docker run --rm python:3.12-alpine sh -c '
+  pip install --no-cache-dir -r requirements.txt && echo WHEELS_OK'
+```
+
+结果全部命中预编译 wheel，构建日志可直接佐证：
+
+```
+uvloop-0.23.0-cp312-cp312-musllinux_1_2_x86_64.whl
+watchfiles-1.3.0-cp310-abi3-musllinux_1_1_x86_64.whl
+websockets-17.2-cp312-cp312-musllinux_1_2_x86_64.whl
+```
+
+⚠️ 因此 `app/Dockerfile` 的 builder 段**故意不装 gcc**。哪天某个依赖开始只发 sdist，
+构建会立刻**报错**而不是悄悄变慢 —— 这是理想的失败方式。
+⚠️ 同理 runtime 段**不装 curl**：alpine 自带 busybox 的 `wget`，HEALTHCHECK 用
+`wget -q -T 3 --spider` 即可；为「让 curl 可用」去 `apk add curl` 会带回
+`ca-certificates` 等约 4~8 MB，与体积目标背道而驰。
+
+**跑法**
+
+```bash
+cp .env.example .env      # 填 POSTGRES_PASSWORD
+bash scripts/verify_d2.sh # 一条命令：建两个镜像 + 比体积 + 验非 root + 验 pgvector
+```
+
+### 多阶段省在哪（原理）
+
+镜像体积来自**层**。单阶段把所有东西都堆在最终镜像里：
+
+| 内容 | 单阶段 | 多阶段 |
+| --- | --- | --- |
+| 基础镜像 | `python:3.12` 完整版（含编译器、文档、apt 缓存） | `python:3.12-alpine`（79.1 MB） |
+| 构建工具链 | `gcc` / `build-essential` 留在镜像里 | builder 段**根本不装**（依赖全是预编译 wheel） |
+| pip 缓存 | 常在镜像里 | `--no-cache-dir` 不留 |
+| pip / setuptools / wheel | 留在镜像里（约 15 MB） | 在 **builder 段**装完即删 |
+| apk/apt 列表 | 常在镜像里 | 与安装同层 `rm -rf` |
+| 源代码 | `COPY . .` 可能带 `.git` / `data/` | 精确 COPY + `.dockerignore` |
+
+> ⚠️ **一个反直觉点**：清理动作（`rm -rf /var/lib/apt/lists/*`、删 pip）必须和「产生它的那条命令」写在**同一条 RUN** 里。
+> 拆成两条 RUN 的话，删除只是在上一层之上盖一个**删除标记（whiteout）**，底下那层的数据**仍然在镜像里** —— overlayfs 是叠加的，不是覆盖。
+> 这就是「层」这个概念的实际影响。
+
+> 📌 **本项目真实踩坑（比上面的通用提醒更值得记）**：
+> 优化到 270 MB 时，我把「删 pip / setuptools」写进了 **runtime 段**，心想「反正最后删掉就小了」。
+> 结果镜像**涨到 284 MB** —— 因为 `COPY --from=builder /opt/venv` 那一层已经把 pip 拷进来了，
+> 后面的 `RUN rm` 只加了一个删除标记，底层那 ~15 MB 依然在。
+> 把它挪回 **builder 段**（装完就删，这样 COPY 过去的 venv 天生就是精简的）之后降到 247 MB。
+> **「把删除放到后面」是错的直觉 —— 删除要放到「数据进入镜像之前」。**
+
+### 层缓存顺序（BP4）
+
+```dockerfile
+COPY requirements.txt ./          # ① 依赖声明：低频变动
+RUN pip install -r requirements.txt  # ② 装依赖：只有 ① 变了才重跑
+COPY app/main.py ./               # ③ 源码：高频变动
+```
+
+反过来写（先 `COPY . .` 再装依赖）的话，**改一行代码就会让依赖层缓存全部失效**，每次构建都要重装几十个包。
+
+---
+
 ## 快速开始
 
 > 依赖与网络配置见 [`docs/env-setup.md`](docs/env-setup.md)（含代理端口、pip 源、HF 镜像的**实测结论**）。
@@ -59,6 +153,31 @@ cp .env.example .env          # 填入自己的密钥
 python -m venv .venv && source .venv/Scripts/activate
 pip install -r requirements.txt
 ```
+
+### 容器化跑法（推荐把依赖关进容器）
+
+> ⚠️ 本机原来没装 Docker，安装见 [`infra/DOCKER-SETUP-Win11.md`](infra/DOCKER-SETUP-Win11.md)（含实测下载地址与代理配置）。
+
+```bash
+cp .env.example .env                          # 至少填 POSTGRES_PASSWORD
+
+# 构建多阶段镜像
+docker build -f app/Dockerfile -t llmops-api:0.1.0 .
+
+# 起 Postgres + pgvector
+docker compose -f infra/compose.yml up -d
+docker compose -f infra/compose.yml ps        # 等 postgres (healthy)
+
+# 一条命令跑完 W1 D2 的三条验收
+bash scripts/verify_d2.sh
+```
+
+| 验收项 | 标准 |
+| --- | --- |
+| 镜像体积 | 多阶段 < 200MB，且显著小于朴素单阶段 |
+| 非 root | 容器内 `whoami` ≠ `root` |
+| pgvector | 能写入向量并完成最近邻检索 |
+
 
 ### 启用提交前脱敏检查（克隆后必做一次）
 
