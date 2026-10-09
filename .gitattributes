@@ -27,3 +27,11 @@ Dockerfile text eol=lf
 
 # 让 git 在 diff 里不把 notebook 的输出当正文
 *.ipynb -text -diff
+
+# ---- Windows 批处理：必须保持 CRLF，且不能做编码转换 ----
+# 理由：cmd.exe 解析 .bat 时，遇到 LF-only 的换行在某些分支语句
+# （if/for 的块）里会解析错乱；而且 .bat 里若有中文，还需配套 GBK 编码。
+# 让 git 的 `* text=auto eol=lf` 去「修正」它 = 直接把脚本改坏。
+# 所以这里显式声明：不改换行、不碰编码。
+*.bat -text
+*.cmd -text

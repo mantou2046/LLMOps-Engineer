@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K8s 观测台 · llmops-api</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>K8s 观测台</h1>
+  <span class="sub" id="target">llmops-api</span>
+  <div class="conn">
+    <span class="dot" id="dot"></span>
+    <span id="conn-text">连接中…</span>
+    <span id="tick"></span>
+  </div>
+</header>
+
+<div id="error" class="err-banner" style="display:none"></div>
+
+<div class="summary">
+  <div class="stat" id="s-desired">   <div class="k">期望副本</div><div class="v" id="v-desired">–</div></div>
+  <div class="stat" id="s-ready">     <div class="k">就绪副本</div><div class="v" id="v-ready">–</div></div>
+  <div class="stat" id="s-endpoints"> <div class="k">就绪端点</div><div class="v" id="v-endpoints">–</div></div>
+  <div class="stat" id="s-restarts">  <div class="k">总重启次数</div><div class="v" id="v-restarts">–</div></div>
+</div>
+
+<div class="layout">
+
+  <div>
+    <section>
+      <h2>Pod <span class="count" id="pod-count"></span></h2>
+      <div class="pods" id="pods"></div>
+    </section>
+
+    <section>
+      <h2>EndpointSlice <span class="count">— Service 实际会把流量发给谁</span></h2>
+      <div class="eps" id="eps"></div>
+    </section>
+
+    <section>
+      <h2>状态速查 <span class="count">遇到不认识的字段看这里</span></h2>
+      <div class="legend">
+        <b>READY 0/1 但 STATUS 是 Running</b> —— 这是最容易误判的一种。它说明容器在跑，
+        但 <b>readiness 探针失败了</b>，所以 K8s 把它的 IP 从 EndpointSlice 摘掉了。
+        请求打不到它，但它不会被重启（RESTARTS 保持 0）。先看下面这张表：
+        <table>
+          <tr><td>readiness 失败</td><td>摘流量、<b>不重启</b>。症状：Service 无响应但 Pod 看着正常</td></tr>
+          <tr><td>liveness 失败</td><td><b>重启容器</b>。症状：RESTARTS 持续增长</td></tr>
+          <tr><td>startup 失败</td><td>超时后杀容器。启动期 liveness/readiness <b>都不执行</b></td></tr>
+          <tr><td>137</td><td>128+9（SIGKILL）→ 通常 OOMKilled，看 limit 是不是太小</td></tr>
+          <tr><td>143</td><td>128+15（SIGTERM）→ 被优雅终止，常见于滚动更新</td></tr>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div>
+    <section>
+      <h2>操作 <span class="count">点一下，真的动集群</span></h2>
+      <div class="actions" id="actions"></div>
+    </section>
+
+    <section>
+      <h2>操作时间线 <span class="count">你做了什么、集群怎么反应</span></h2>
+      <div class="timeline" id="timeline">
+        <div class="empty" id="tl-empty">还没有操作。左边随便点一个试试。</div>
+      </div>
+    </section>
+  </div>
+
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
