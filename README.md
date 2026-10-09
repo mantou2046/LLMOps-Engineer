@@ -190,8 +190,121 @@ bash scripts/verify_d2.sh
 | 非 root | 容器内 `whoami` ≠ `root` |
 | pgvector | 能写入向量并完成最近邻检索 |
 
+---
 
-### 启用提交前脱敏检查（克隆后必做一次）
+## 本地 K8s 跑法（W1 D3 / D4 产出）
+
+> 用 [kind](https://kind.sigs.k8s.io/) 在 Docker 里起一个单节点集群。
+> **为什么选 kind 而不是 minikube**：见 [`docs/decisions.md`](docs/decisions.md) D6。
+
+```bash
+# 一条命令跑完 D3 的三条验收（建集群 → load 镜像 → apply → 校验 → 自愈演示）
+bash scripts/verify_d3.sh
+
+# 一条命令跑完 D4 的三条验收（配置外置 → 持久化 → Ingress）
+bash scripts/verify_d4.sh
+```
+
+| 验收项（D3） | 标准 | 实测 |
+| --- | --- | --- |
+| Pod 全部 Running | `kubectl get pods` | ✅ 2/2，**13 项全绿** |
+| 服务能访问 | `port-forward` + `/health` 返回 `status:ok` | ✅ |
+| Service Endpoints | 非空（证明 selector 与 labels 匹配上） | ✅ 2 个 endpoint |
+
+| 验收项（D4） | 标准 | 实测 |
+| --- | --- | --- |
+| 配置外置 | ConfigMap + Secret 容器内可读 | ✅ **19 项全绿** |
+| ⭐ **数据持久化** | 删 Pod 重建后数据还在 | ✅ `INSERT` → `delete pod` → 重建 → `SELECT` count=1 |
+| **Ingress** | 宿主 80 端口能按 Host 路由到服务 | ✅ `Host: llmops.local` → **200**；错误 Host → **404**（负向验证） |
+
+### 清单文件
+
+```
+infra/k8s/
+├── app.yaml                 # Deployment(2 副本) + Service(ClusterIP)      [D3]
+├── config.yaml              # ConfigMap llmops-config + Secret llmops-secrets  [D4]
+├── postgres.yaml            # headless Service + StatefulSet + initdb ConfigMap [D4]
+├── ingress.yaml             # Ingress 规则（host: llmops.local）              [D4]
+├── kind-ingress-config.yaml # 带 extraPortMappings 的集群配置                 [D4]
+└── ingress-nginx/
+    └── deploy-upstream.yaml # ingress-nginx 控制器清单（已打 2 处补丁，见下）   [D4]
+```
+
+### Ingress 一键安装（⚠️ 会删库重建集群）
+
+```bash
+bash scripts/setup_ingress_kind.sh            # 有二次确认
+bash scripts/setup_ingress_kind.sh --yes      # 跳过确认
+```
+
+`extraPortMappings` 只在**建集群时**生效，所以装 Ingress 必须 `kind delete cluster` + 重建。
+脚本会先让你确认，并处理下面三个坑（全部实测踩过）：
+
+1. **清单下载** —— 沙箱 env 代理拦 `raw.githubusercontent.com` → 走注册表代理 `127.0.0.1:9527`，
+   清单**落盘进仓库**（`infra/k8s/ingress-nginx/deploy-upstream.yaml`）。
+2. **清单两处补丁** —— Service `LoadBalancer`→`NodePort`(30080/30443)；**去掉 `@sha256:` digest 钉死**。
+3. **节点 containerd 代理** —— kind 把宿主 `HTTP(S)_PROXY` 注入节点，而节点内部的
+   `127.0.0.1` 指向节点自己 → 任何回源都 `connection refused`。脚本会加 systemd drop-in
+   清掉它（`Environment=` 清空 + `NO_PROXY=*` 兜底）。
+
+### ⚠️ kind 的三个经典坑（都实测踩过）
+
+1. **镜像必须显式 load**。kind 的「节点」是**独立容器**，看不到宿主机的 `docker images`。
+   不 load 就一定拉不到 —— 而且如果镜像用 `latest` + `imagePullPolicy: Always`，
+   kubelet 还会**绕过本地镜像**去 Docker Hub 拉一个不存在的 tag → 直接 `ImagePullBackOff`，
+   而镜像明明就在节点里。**所以用具体 tag + `IfNotPresent`**（见 `docs/decisions.md` D7）。
+
+2. **multi-arch 镜像载入失败**。`kind load docker-image pgvector/pgvector:pg16` 会报
+   `ctr: content digest ...: not found`。绕法：
+   ```bash
+   docker save pgvector/pgvector:pg16 -o pgv.tar
+   docker cp "E:\Projects\LLMOps-Engineer\pgv.tar" llmops-control-plane:/pgv.tar
+   docker exec llmops-control-plane ctr -n k8s.io images import \
+       --platform linux/amd64 /pgv.tar
+   ```
+   完整归因（代理泄漏 + 外平台层）见 `docs/decisions.md` D9。
+
+3. **digest 引用 + 节点代理 = 永远拉不到**。清单里写 `image: xxx@sha256:...` 时，
+   kubelet 会拿 **digest 去远端校验 manifest**（不查本地），而节点代理指向 `127.0.0.1`
+   → `ErrImagePull`，**且 `imagePullPolicy` 设什么都没用**。修法见 D11
+   （去 digest + 清节点 containerd 代理）。
+
+### 清理
+
+```bash
+kind delete cluster --name llmops
+```
+
+---
+
+## ⚠️ Docker 数据盘已迁到 E 盘（2026-10-09 完成）
+
+**关键认知：项目源码在 E 盘 ≠ 数据在 E 盘。**
+
+`E:\Projects\LLMOps-Engineer` 本身只占 **618 KB**（纯源码）。但 kind 的「节点」
+本质是 **Docker 容器** —— 它的文件系统、每个镜像层、postgres 的 PVC 数据卷，
+**全部写在 Docker 的数据盘里**。
+
+| | 位置 | 状态 |
+| --- | --- | --- |
+| 迁移前 | `C:\Users\lile2\AppData\Local\Docker\wsl\disk\docker_data.vhdx` | 11.5 GB，C 盘只剩 37G |
+| **迁移后** | **`E:\Projects\DockerData\DockerDesktopWSL\`** | **11.55 GB，C 盘回到 48G** |
+
+📄 **迁移步骤见 [`docs/docker-data-move-to-E.md`](docs/docker-data-move-to-E.md)**
+（目标位置 **`E:\Projects\DockerData`** —— 与代码仓库平级，见下方「为什么」）。
+
+⚠️ `docker rmi` **不会让 vhdx 变小** —— 必须迁移或压缩才能真回收。
+💡 **迁移后 kind 集群原样恢复，无需重建**（实测）；`verify_d4.sh` 19 项全绿，postgres 数据完好。
+✅ C 盘旧 vhdx 由 Docker Desktop **自动清理**（`AppData\Local\Docker` 12 GB → 9.1 MB）。
+
+**为什么数据盘不放在本项目目录里**：Docker 数据盘是**全局的**，装着所有项目共用的
+镜像 / 容器 / 卷，不属于任何单个仓库。放进去会让一个 618 KB 的代码仓库看起来有 12 GB，
+备份和同步时也会连带搬运。所以 `E:\Projects\` 下区分两类目录 ——
+代码仓库（进 Git、常备份）与大数据目录（`DockerData` / `AIModel` / `FileStorages`，平级而非嵌套）。
+
+---
+
+## 启用提交前脱敏检查（克隆后必做一次）
 
 本仓库是**公开**的，所以有一道提交前门禁，防止手滑把凭据或内部信息推上去。
 
@@ -222,7 +335,7 @@ python scripts/check_sensitive.py --all                              # 手动全
 
 | 周 | 日期 | 主题 | 状态 |
 | --- | --- | --- | --- |
-| W1 | 10/7 – 10/11 | 起手与环境、Docker、K8s 起手 | 进行中 |
+| W1 | 10/7 – 10/11 | 起手与环境、Docker、K8s 起手 | 进行中（D1–D4 已完成，D5 待做） |
 | W2 | 10/12 – 10/18 | K8s 生产化、上云、服务化 + 观测 | 未开始 |
 | W3 | 10/19 – 10/25 | 实验追踪与模型管理 | 未开始 |
 | W4 | 10/26 – 11/1 | 编排、部署与网关 | 未开始 |
