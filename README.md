@@ -29,10 +29,30 @@ LLMOps-Engineer/
 ├── evals/          # 评估体系（golden set、RAGAS 四指标、CI 门禁脚本）
 ├── data/           # 样例数据（自造脱敏文档 + 切块产物）
 ├── notebooks/      # 探索性实验（chunk 策略对比、检索调优）
+├── observatory/    # ⭐ 本地 K8s 观测台（可视化 + 可交互，见下）
 └── docs/
     ├── decisions.md   # 决策日志（每个关键选型写清「为什么」）
     └── env-setup.md   # 本机环境与已知坑
 ```
+
+### K8s 观测台（`observatory/`）
+
+一个连着你本地 kind 集群的网页控制台：**Pod 卡片墙实时刷新 +
+7 个按钮直接操作真实集群**（删 Pod 看自愈、改坏探针看摘流量、
+慢启动看 startupProbe、触发 OOM 看退出码 137……）。
+
+```bash
+# 双击 observatory/start.bat，或：
+python observatory/server.py      # 然后打开 http://127.0.0.1:8899
+```
+
+**为什么要做它**：W1 的知识点（三种探针、自愈、就绪）如果只用
+`verify_*.sh` 的「29 项全绿」来交付，你看不到任何东西，也无从判断
+真假。这个工具把证据来源换成**集群自身的行为** —— 屏幕上卡片
+从绿变红、RESTARTS 从 0 跳到 3，都是真实 kubectl 操作的结果，
+你随时可以另开终端 `kubectl get pods -w` 交叉验证。
+
+详见 [`observatory/README.md`](observatory/README.md)。
 
 ---
 
@@ -260,6 +280,17 @@ kubectl exec deploy/llmops-api -- rm -f /tmp/not-ready
 ⚠️ **`READY 0/1` + `STATUS Running` 是最易误判的一种故障**：容器没崩、`RESTARTS=0`、
 `logs` 也正常，但服务就是不接流量。定位靠 `kubectl get endpoints`（端点变少/为空）
 或 `describe pod` 里的 `Readiness probe failed`。
+
+**不想敲命令看这些现象？用观测台（`observatory/`）：**
+
+```bash
+python observatory/server.py     # 打开 http://127.0.0.1:8899
+```
+
+上面那两个旋钮、以及「删 Pod 看自愈」「改坏探针对照 readness vs liveness」
+「触发 OOM 看 137」都做成了按钮。点一下，**卡片当场变红/变绿**，
+右侧同时显示执行了哪条 kubectl —— 想核实就照着敲一遍。
+详见 [`observatory/README.md`](observatory/README.md)。
 
 📖 探针原理与参数推算详见 [`docs/decisions.md`](docs/decisions.md) D12–D14。
 
