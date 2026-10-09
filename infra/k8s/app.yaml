@@ -1,0 +1,84 @@
+# =============================================================================
+# W1 D3 产出物 · K8s 清单
+# -----------------------------------------------------------------------------
+# Deployment + Service。用来把 D2 的镜像（llmops-api:0.1.0）跑进 kind 集群。
+#
+# 应用：
+#   kubectl apply -f infra/k8s/app.yaml
+# 清理：
+#   kubectl delete -f infra/k8s/app.yaml
+#
+# ⚠️ 关键设计点（D3 卡片「卡点」那条的正解）：
+#   image: llmops-api:0.1.0   ← 用**具体 tag**，绝不用 latest
+#   imagePullPolicy: IfNotPresent  ← 镜像已在 kind 节点里（kind load），
+#       不能用 Always —— 否则 kubelet 会跑去 Docker Hub 拉一个不存在的
+#       llmops-api，直接 ImagePullBackOff。
+# =============================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llmops-api
+  labels:
+    app: llmops-api
+spec:
+  replicas: 2 # 两个副本 → 后面删一个 Pod 能直观看到「自愈」
+  selector:
+    matchLabels:
+      app: llmops-api
+  template:
+    metadata:
+      labels:
+        app: llmops-api # ⚠️ 必须与上面 selector.matchLabels 一致，否则 Service 选不中
+    spec:
+      containers:
+        - name: api
+          # 具体 tag（D2 构建产物）；kind 里需先 kind load docker-image 才能取到
+          image: llmops-api:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: APP_VERSION
+              value: "0.1.0"
+          # 资源请求/限制：给 scheduler 提供调度依据，也能防单个 Pod 吃满节点
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          # 探针（D5 会专门练三种；这里先用最小可用版本）
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llmops-api
+  labels:
+    app: llmops-api
+spec:
+  # ClusterIP：仅集群内可达。本地验证走 kubectl port-forward（见 cheatsheet）。
+  # D4 会加 Ingress；那时也可以改成 NodePort / LoadBalancer。
+  type: ClusterIP
+  selector:
+    app: llmops-api # ⚠️ 靠这个 label 找到上面 Deployment 的 Pod
+  ports:
+    - name: http
+      port: 80 # Service 对外的端口
+      targetPort: http # 容器上的端口（用命名端口，改端口号时只改一处）
+      protocol: TCP

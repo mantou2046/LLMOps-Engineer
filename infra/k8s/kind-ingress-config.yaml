@@ -1,0 +1,31 @@
+# kind 集群配置：让宿主 80/443 能进到集群
+# =============================================================================
+# ingress-nginx 在 kind 上必须用 NodePort + extraPortMappings，原因：
+#   kind 的「节点」是 Docker 容器，节点的 80 端口在 Docker 网络里，
+#   宿主机直接访问不到 → 需要把宿主端口映射进容器，再让 ingress
+#   监听节点上的固定 NodePort（30080/30443）。
+#
+# 用法（⚠️ 只在**创建集群时**生效，已存在的集群改了不生效）：
+#   kind delete cluster --name llmops
+#   kind create cluster --name llmops --config infra/k8s/kind-ingress-config.yaml
+# =============================================================================
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            # ingress-nginx 官方文档要求：给节点打标签，让控制器调度到它
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # 宿主机 80 → 节点 30080（ingress-nginx 的 http NodePort）
+      - containerPort: 30080
+        hostPort: 80
+        protocol: TCP
+      # 宿主机 443 → 节点 30443（https NodePort）
+      - containerPort: 30443
+        hostPort: 443
+        protocol: TCP

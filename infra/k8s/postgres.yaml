@@ -1,0 +1,150 @@
+# =============================================================================
+# W1 D4 产出物 · pgvector 持久化（StatefulSet + PVC）
+# -----------------------------------------------------------------------------
+# 应用：
+#   kubectl apply -f infra/k8s/postgres.yaml
+#
+# 验证（D4 核心验收「删掉 Pod 重建后数据还在」）：
+#   bash scripts/verify_d4.sh
+#
+# 【为什么用 StatefulSet 而不是 Deployment】
+#   Deployment 出来的 Pod 名是随机后缀（llmops-api-7989b7796b-xxxx），且**共享**一个 PVC 模板。
+#   有状态服务需要：① 稳定的网络标识 ② 每个副本**独占**一份存储且与 Pod 身份绑定。
+#   StatefulSet 给的就是这两样：pod 名固定为 <sts>-0、-1、-2，PVC 也按序号生成，
+#   Pod 重建后**仍挂回原来那块盘** —— 这正是「数据还在」的机制保证。
+#   （数据库是最典型的 StatefulSet 场景。）
+#
+# 【volumeClaimTemplates vs 手动建 PVC】
+#   用 volumeClaimTemplates：PVC 由 StatefulSet 自动创建并命名（<模板名>-<sts名>-<序号>），
+#   删 Pod 不会删 PVC（除非删 StatefulSet 且显式清理）→ 数据天然留存。
+# =============================================================================
+
+---
+# -----------------------------------------------------------------------------
+# Headless Service —— StatefulSet 的「稳定网络标识」必需
+# -----------------------------------------------------------------------------
+# ⚠️ clusterIP: None 就是 headless：不分配 VIP，DNS 直接返回各 Pod 的 IP。
+#    StatefulSet 的 spec.serviceName 必须指向一个 headless service。
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres # ⚠️ 必须是上面那个 headless Service 的名字
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          # ⚠️ D2 compose 用的同一个镜像（本地已有，同样要 kind load）
+          image: pgvector/pgvector:pg16
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            # 从 ConfigMap 取非敏感项
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: llmops-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: llmops-config
+                  key: POSTGRES_USER
+            # ⚠️⚠️ 从 Secret 取密码 —— 这是「配置外置」最关键的一处：
+            #      密码**不在**这个 YAML 里，也不在镜像里，而是运行时注入。
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: llmops-secrets
+                  key: POSTGRES_PASSWORD
+            # 数据目录必须在挂载点下，否则数据写在容器层 → 删 Pod 就没了
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            # 初始化脚本：首次启动时建扩展（pgvector）
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+          # 用 pg_isready 做存活探测（pg 官方镜像自带）
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB -h 127.0.0.1"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB -h 127.0.0.1"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: initdb
+          configMap:
+            name: postgres-initdb
+  # ⭐⭐ 持久化的核心：PVC 模板
+  volumeClaimTemplates:
+    - metadata:
+        name: data # → 生成的 PVC 名为 data-postgres-0
+      spec:
+        accessModes: ["ReadWriteOnce"] # 单节点读写（本地 kind 只有一种）
+        # kind 自带一个默认 StorageClass（standard / rancher.io/local-path），
+        # 不写 storageClassName 就用它，动态制备 PV —— 即「The Dynamic Way」。
+        resources:
+          requests:
+            storage: 1Gi
+---
+# -----------------------------------------------------------------------------
+# 初始化脚本（ConfigMap 挂成 initdb 目录）
+# -----------------------------------------------------------------------------
+# ⚠️ /docker-entrypoint-initdb.d 里的脚本**只在数据目录为空时**执行一次。
+#    所以：如果 PVC 里已有数据，改了这里也不会重跑 —— 这是常见误解。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-initdb
+  labels:
+    app: postgres
+data:
+  01-extensions.sql: |
+    -- pgvector 扩展：向量类型与相似度检索
+    CREATE EXTENSION IF NOT EXISTS vector;
+    -- 演示表：持久化验证用
+    CREATE TABLE IF NOT EXISTS persistence_demo (
+      id         serial PRIMARY KEY,
+      note       text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );

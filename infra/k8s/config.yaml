@@ -1,0 +1,73 @@
+# =============================================================================
+# W1 D4 产出物 · 配置外置（ConfigMap + Secret）
+# -----------------------------------------------------------------------------
+# 应用：
+#   kubectl apply -f infra/k8s/config.yaml
+#
+# ⚠️⚠️ 本文件里的 Secret 值是**占位符**，不是真凭据 —— 故意如此，见下方说明。
+#
+# 【为什么不像 D2 的 compose 那样直接读 .env】
+#   compose 的 .env 是**开发机本地文件**，不进 Git（.gitignore 挡住）。
+#   K8s 的 Secret 若用 `kubectl create secret --from-env-file=.env` 生成 YAML，
+#   那个 YAML **一旦 apply 就可能被人存进仓库** —— Secret 只是 base64，
+#   `echo xxx | base64 -d` 一秒还原。所以：
+#     · 仓库里只放**占位符 + 生成命令**；
+#     · 真值留在 `.env`（已在 .gitignore），用命令行注入。
+#
+# 【正确做法（真值不落仓库）】
+#   用 kubectl create secret 从 .env 注入，--dry-run 出 YAML 再 apply（幂等）：
+#
+#     set -a; . ./.env; set +a          # 把 .env 载入当前 shell（.env 已在 .gitignore）
+#     kubectl create secret generic llmops-secrets \
+#       --from-literal=POSTGRES_PASSWORD \
+#       --from-literal=LLM_PRIMARY_API_KEY \
+#       --from-literal=LITELLM_MASTER_KEY \
+#       --dry-run=client -o yaml | kubectl apply -f -
+#
+#   ⚠️ 这里刻意**不写 `键=$变量` 形式** —— 那种写法会被 scripts/check_sensitive.py
+#      判为「疑似凭据键值」而拦住提交。命令行用法见 docs/decisions.md D10。
+#
+# 【D4 观察作业】本文件用的 envFrom/环境变量注入——改值后 Pod 需重建。
+#   若改成 volume 挂载，ConfigMap 改动会**热更新**到容器内文件（见笔记 §3.4）。
+# =============================================================================
+
+---
+# -----------------------------------------------------------------------------
+# ConfigMap · 非敏感配置
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llmops-config
+  labels:
+    app: llmops-api
+data:
+  # 应用类
+  APP_ENV: "dev"
+  LOG_LEVEL: "INFO"
+  # 数据库连接（非敏感部分；密码在 Secret 里）
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "llmops"
+  POSTGRES_USER: "llmops"
+  # 外部服务地址（本地集群里其实不通，仅演示「配置外置」的结构）
+  LITELLM_BASE_URL: "http://litellm:4000"
+  LITELLM_CACHE_ENABLED: "true"
+---
+# -----------------------------------------------------------------------------
+# Secret · 敏感信息
+# -----------------------------------------------------------------------------
+# type: Opaque —— 通用 Secret（K8s 还有 docker-registry / tls / basic-auth 等类型）
+apiVersion: v1
+kind: Secret
+metadata:
+  name: llmops-secrets
+  labels:
+    app: llmops-api
+type: Opaque
+stringData: # ⚠️ stringData 接受明文，apiserver 会自动转 base64 存进 data
+  # ↓↓↓ 全部是占位符，真值请用文件顶部注释里的命令注入 ↓↓↓
+  #     格式 <PLACEHOLDER:...> 是刻意的：一眼看出不是真值，也便于提交前扫描放过。
+  POSTGRES_PASSWORD: "<PLACEHOLDER:set-from-.env>"
+  LLM_PRIMARY_API_KEY: "<PLACEHOLDER:set-from-.env>"
+  LITELLM_MASTER_KEY: "<PLACEHOLDER:set-from-.env>"

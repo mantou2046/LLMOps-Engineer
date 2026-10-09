@@ -1,0 +1,48 @@
+# =============================================================================
+# W1 D4 产出物 · Ingress（对外暴露）
+# -----------------------------------------------------------------------------
+# 前置：先装 ingress-nginx 控制器（kind 需要特别配置，见 scripts/verify_d4.sh）
+#
+# 应用：
+#   kubectl apply -f infra/k8s/ingress.yaml
+# 验证：
+#   curl -H "Host: llmops.local" http://localhost/health
+#
+# 【Ingress 是什么、解决什么问题】
+#   Service 的 NodePort / LoadBalancer 是「L4 转发」—— 每个服务一个端口/一个 IP，
+#   服务一多就端口爆炸，且没法按域名/路径分流。
+#   Ingress 是「L7（HTTP）入口」：用**一条规则**按 host / path 把流量分到不同 Service。
+#   ⚠️ Ingress 本身只是一份**声明**，真正干活的是 Ingress Controller（这里用 ingress-nginx）。
+#      没有 Controller，Ingress 对象就是个没人理会的 YAML。
+#
+# 【kind 的特殊要求】
+#   kind 的节点是容器，宿主机访问不到节点端口。必须在**建集群时**用
+#   extraPortMappings 把宿主 80/443 映射到节点的 30080/30443，
+#   并让 ingress-nginx 监听那两个 NodePort（见 infra/k8s/kind-ingress-config.yaml）。
+# =============================================================================
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: llmops-api
+  labels:
+    app: llmops-api
+  annotations:
+    # 把请求路径原样透传给后端（示例；FastAPI 这里其实不需要）
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  # ⚠️ 必须指定 ingressClassName，否则 ingress-nginx < 1.0 之后不认这条规则
+  ingressClassName: nginx
+  rules:
+    # 按域名分流：访问 http://llmops.local 打到 llmops-api
+    - host: llmops.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: llmops-api
+                port:
+                  number: 80
