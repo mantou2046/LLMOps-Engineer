@@ -192,7 +192,7 @@ bash scripts/verify_d2.sh
 
 ---
 
-## 本地 K8s 跑法（W1 D3 / D4 产出）
+## 本地 K8s 跑法（W1 D3 / D4 / D5 产出）
 
 > 用 [kind](https://kind.sigs.k8s.io/) 在 Docker 里起一个单节点集群。
 > **为什么选 kind 而不是 minikube**：见 [`docs/decisions.md`](docs/decisions.md) D6。
@@ -203,6 +203,9 @@ bash scripts/verify_d3.sh
 
 # 一条命令跑完 D4 的三条验收（配置外置 → 持久化 → Ingress）
 bash scripts/verify_d4.sh
+
+# 一条命令跑完 D5 的验收（三种探针 + 三种排错演练）
+bash scripts/verify_d5.sh
 ```
 
 | 验收项（D3） | 标准 | 实测 |
@@ -217,11 +220,54 @@ bash scripts/verify_d4.sh
 | ⭐ **数据持久化** | 删 Pod 重建后数据还在 | ✅ `INSERT` → `delete pod` → 重建 → `SELECT` count=1 |
 | **Ingress** | 宿主 80 端口能按 Host 路由到服务 | ✅ `Host: llmops.local` → **200**；错误 Host → **404**（负向验证） |
 
+| 验收项（D5） | 标准 | 实测 |
+| --- | --- | --- |
+| 三种探针配置 | startup / liveness / readiness 路径与参数正确 | ✅ **29 项全绿** |
+| ⭐ **startupProbe 有效性** | 同样 45s 慢启动，有 startup 应零重启 | ✅ 反面（无 startup）**重启 4~5 次起不来** vs 正面 **0 次 `1/1 Running`** |
+| ⭐ **readiness 摘流量** | 失败 → 摘出 EndpointSlice 但**不重启** | ✅ `0/1 Running` + 端点数 **2→1→2** + **RESTARTS=0** |
+| 排错判据 | 三种故障各有可断言的特征 | ✅ `ErrImagePull` / `OOMKilled`+**137** / `Running` 但 `READY=0/1` |
+
+### 三种探针怎么配的（D5）
+
+**参数按「失败代价」推算，不是照抄**：
+
+| 探针 | 路径 | period × threshold | 容忍窗口 | 失败后果 |
+| --- | --- | --- | --- | --- |
+| `startupProbe` | `/health` | 2s × 30 | **60s** | 杀容器（仅启动期） |
+| `livenessProbe` | `/health` | 10s × 3 | **30s** | **重启容器** |
+| `readinessProbe` | `/ready` | 3s × 2 | **6s** | **摘出 EndpointSlice**（不重启） |
+
+**核心权衡**：readiness 的误判代价只是「短暂少一个副本接流量」→ 可以激进（6s）；
+liveness 的误判代价是「重启容器 + 可能进 CrashLoop 恶性循环」→ 必须保守（30s）。
+⚠️ **若 startup 的窗口 ≤ liveness 的窗口，startup 形同虚设** —— `verify_d5.sh` 里有断言检查这个不等式。
+
+**为什么 liveness 打 `/health` 而 readiness 打 `/ready`**：liveness 若查数据库，
+数据库抖动会导致容器被反复重启，而**重启解决不了数据库问题** —— 把「外部依赖故障」
+放大成「服务全面不可用」。外部依赖的检查属于 readiness（此时摘流量是正确的）。
+
+**两个「默认关闭」的演示旋钮**（`app/main.py`，D13）：
+
+```bash
+# ① 模拟慢启动（默认 0 = 行为不变），用于演示 startupProbe
+kubectl set env deployment/llmops-api STARTUP_DELAY_SECONDS=45
+
+# ② 注入「就绪失败」（默认不激活），演示摘流量但不重启
+kubectl exec deploy/llmops-api -- touch /tmp/not-ready
+kubectl get pods                      # → READY 0/1，STATUS 仍是 Running
+kubectl exec deploy/llmops-api -- rm -f /tmp/not-ready
+```
+
+⚠️ **`READY 0/1` + `STATUS Running` 是最易误判的一种故障**：容器没崩、`RESTARTS=0`、
+`logs` 也正常，但服务就是不接流量。定位靠 `kubectl get endpoints`（端点变少/为空）
+或 `describe pod` 里的 `Readiness probe failed`。
+
+📖 探针原理与参数推算详见 [`docs/decisions.md`](docs/decisions.md) D12–D14。
+
 ### 清单文件
 
 ```
 infra/k8s/
-├── app.yaml                 # Deployment(2 副本) + Service(ClusterIP)      [D3]
+├── app.yaml                 # Deployment(2 副本，三探针) + Service(ClusterIP)  [D3/D5]
 ├── config.yaml              # ConfigMap llmops-config + Secret llmops-secrets  [D4]
 ├── postgres.yaml            # headless Service + StatefulSet + initdb ConfigMap [D4]
 ├── ingress.yaml             # Ingress 规则（host: llmops.local）              [D4]

@@ -110,19 +110,72 @@ kubectl logs <pod> --previous         # ③ 看上一条容器的日志
 | `ContainerCreating` | 正在拉镜像 / 挂卷 | 镜像大？Volume 挂载慢？ |
 | `ImagePullBackOff` | **拉不到镜像** | 镜像名/tag 拼错？私有仓库缺 `imagePullSecrets`？⚠️ kind 本地镜像：**`latest` + `imagePullPolicy: Always` 会去远端拉** → 用具体 tag 或 `IfNotPresent` |
 | `CrashLoopBackOff` | 容器起来又崩，反复重启 | `logs --previous` 看崩因；探针配错也会导致反复重启 |
-| `Running` 但访问不到 | Pod 正常、流量不通 | Service 的 `selector` 是否**真的匹配 Pod 的 labels**？`Endpoints` 是否为空？ |
-| `OOMKilled`（describe 里看） | 超内存 limit 被杀 | `resources.limits.memory` 太小 |
+| `Running` 但访问不到 | Pod 正常、流量不通 | ⚠️ **先看 `READY` 列**（不是 `STATUS`！见下）+ `Endpoints` 是否为空 |
+| `OOMKilled`（describe 里看） | 超内存 limit 被杀 | **退出码 137**；`resources.limits.memory` 太小 |
+
+### ⚠️ `READY 0/1` + `STATUS Running` —— 最易误判的一种（D5 实测）
+
+**症状**：`kubectl get pods` 里 STATUS 写着 `Running`，服务却访问不到。
+
+```
+NAME                        READY   STATUS    RESTARTS
+llmops-api-xxx              0/1     Running   0        ← 问题在这里：READY 是 0/1
+```
+
+**为什么危险**：容器没崩（`RESTARTS=0`）、`logs` 也没异常，容易误判成「网络问题」或
+「Service/Ingress 配置问题」，**实际是 readiness 探针没过**（路径写错 / 应用未就绪）。
+
+**三步定位**：
+
+```bash
+# ① 看 READY 列（不是 STATUS 列）
+kubectl get pods
+
+# ② 看端点 —— 变少/为空就确认是「被摘出去了」
+kubectl get endpoints <svc>
+# v1.33+ 用 EndpointSlice（正式 API）看得更细，含每个端点的 ready 状态：
+kubectl get endpointslice -l kubernetes.io/service-name=<svc> \
+  -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"\tready="}{.conditions.ready}{"\n"}{end}'
+
+# ③ 看事件 —— 直接给出探针路径与失败原因
+kubectl describe pod <pod> | sed -n '/^Events:/,$p'
+# → Readiness probe failed: HTTP probe failed with statuscode: 404   ← 路径不存在
+```
+
+⚠️ **关键区分**：
+
+| | 失败后果 | 怎么判断 |
+| --- | --- | --- |
+| **liveness** 失败 | **重启容器**（`RESTARTS` 涨） | `describe` 里 `Killing` + `failed liveness probe` |
+| **readiness** 失败 | **摘出负载均衡**（`READY` 变 `0/1`） | `RESTARTS` **不动** + EndpointSlice 里 `ready=false` |
 
 ### 一张图定位「Pod 起不来」
 
 ```
-get pods → STATUS?
-├─ Pending        → scheduler 没选节点   → describe 看 Events
-├─ ImagePullBackOff → kubelet 拉镜像失败 → 查镜像名/tag/pullPolicy
-├─ CrashLoopBackOff → 起来了但崩/探针失败 → logs --previous
-├─ Terminating 卡住 → finalizer / 挂载卷 → describe 看 Events
-└─ Running 但不通   → Service/Ingress 层   → 查 selector 与 Endpoints
+get pods → 看 STATUS 与 READY
+├─ Pending          → scheduler 没选节点     → describe 看 Events
+├─ ImagePullBackOff → kubelet 拉镜像失败      → 查镜像名/tag/pullPolicy
+├─ CrashLoopBackOff → 起来了但崩 / 探针失败    → logs --previous + describe 看 Events
+├─ Terminating 卡住  → finalizer / 挂载卷      → describe 看 Events
+└─ Running 但不通
+   ├─ READY 0/1  → readiness 没过（探针路径错？应用未就绪？）→ get endpoints + describe
+   └─ READY 1/1  → 那问题在 Service/Ingress 层            → 查 selector / labels / Host
 ```
+
+**退出码速记**：`0` 正常 · `1` 应用自身报错 · **`137` = 128+9(SIGKILL) = 被 OOM 杀**。
+
+### 看容器真实内存（`kubectl top` 不可用时）
+
+⚠️ `kubectl top` 依赖 **metrics-server**，kind 默认**没装**（W2 D7 装）。
+替代方案 —— 直接读 cgroup，**比 metrics 更精确**：
+
+```bash
+kubectl exec <pod> -- cat /sys/fs/cgroup/memory.current   # 当前实际占用（字节）
+kubectl exec <pod> -- cat /sys/fs/cgroup/memory.max       # 当前 limit
+```
+
+定 `resources.limits.memory` 前**先量基线**，别拍脑袋 —— 量出来 42.5MB 就
+别给 32Mi（必 OOM），也别给 8Gi（浪费且掩盖泄漏）。
 
 ---
 

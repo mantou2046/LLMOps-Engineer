@@ -487,6 +487,116 @@ systemctl daemon-reload && systemctl restart containerd'
 
 ---
 
+## D12 · 三种探针的分工：readiness 比 liveness 灵敏一个数量级（2026-10-09 · W1 D5）
+
+**背景**：D5 第 1 步要给 Deployment 加 liveness / readiness / startup 三种探针。
+探针参数写多少，是最容易随手拍、也最容易埋雷的地方。
+
+**决策**：三组参数**刻意不等**，按「失败代价」排序取不同灵敏度。
+
+| 探针 | 路径 | period | failureThreshold | 容忍窗口 | 失败后果 |
+| --- | --- | --- | --- | --- | --- |
+| startupProbe | `/health` | 2s | 30 | **60s** | 杀容器（启动期） |
+| livenessProbe | `/health` | 10s | 3 | **30s** | 重启容器 |
+| readinessProbe | `/ready` | 3s | 2 | **6s** | 摘出 EndpointSlice |
+
+**理由（核心权衡）**
+
+- **readiness 要灵敏（6s）**：误判的代价只是「短暂少一个副本接流量」，代价低 → 可以激进。
+  摘流量是**可逆、廉价**的操作。
+- **liveness 要保守（30s）**：误判的代价是**重启容器**（冷启动 + 可能进 CrashLoop 恶性循环），
+  代价高 → 必须容忍瞬时抖动。
+- **startup 要最宽容（60s）**：它的作用就是「在启动期替 liveness 挡住一切」，
+  比 liveness 的 30s 更宽才能有效。⚠️ **若 startup 窗口 ≤ liveness 窗口，startup 形同虚设**
+  —— 所以 `verify_d5.sh` 里专门有一条断言检查这个不等式。
+
+**另一个决策：liveness 不写 `initialDelaySeconds`**
+
+有 startupProbe 兜住启动期后，liveness 从容器一启动就可以探（因为 startup 成功前它根本不执行）。
+写 `initialDelaySeconds` 只会拖慢「发现真死锁」的速度。官方文档也明确：
+> "Liveness probes do not wait for readiness probes to succeed. If you want to wait before executing a liveness probe, you can either define `initialDelaySeconds` or use a startup probe."
+
+**关键区分：liveness 打 `/health`（不查外部依赖），readiness 打 `/ready`（W2 改查数据库）**
+
+liveness 若查数据库：数据库抖动 → liveness 失败 → 重启容器 → **但重启解决不了数据库问题**，
+反而把所有副本轮流重启，把「外部依赖故障」放大成「服务全面不可用」。
+外部依赖的检查属于 readiness（此时摘流量是对的 —— 确实处理不了请求）。
+
+**复核条件**：应用启动变快（< 5s）后可考虑去掉 startupProbe；接入真实依赖后
+readiness 的 `failureThreshold` 可能要调大（避免依赖抖动导致频繁摘流量）。
+
+---
+
+## D13 · 给应用加两个「默认关闭」的演示旋钮，而不是改测试专用镜像（2026-10-09 · W1 D5）
+
+**背景**：D5 要验证三种探针**真的生效**。但原始应用启动 < 2s、且没有任何「会失败」的状态
+—— 探针永远不会失败，也就无法证明它有用。需要一个手段来制造故障。
+
+**候选方案**
+
+| 方案 | 问题 |
+| --- | --- |
+| A. 新建一个「故意会失败」的测试镜像 | 生产镜像与测试镜像分叉，测的不是同一个东西 |
+| B. 用 `kubectl exec` 进去 kill 主进程 | 只能演示 liveness，演示不了 readiness 的「摘流量但不重启」 |
+| C. 改应用，加**默认关闭**的开关 | ✅ 采用 |
+
+**决策**：给 `app/main.py` 加两个旋钮，**默认值保证生产行为完全不变**。
+
+1. `STARTUP_DELAY_SECONDS`（默认 `0`）—— 模拟慢启动，让 startupProbe 有东西可保护。
+2. `NOT_READY_FILE`（默认 `/tmp/not-ready`）—— 该文件存在时 `/ready` 返回 **503**。
+
+**理由**
+
+- **测的就是生产镜像本身**：开关关闭时行为与 v0.1.0 逐字节一致（已实测：默认导入耗时 < 0.1s）。
+- **readiness 的演示必须能「不重启容器」**：方案 B 做不到，而 `/ready` 返回 503
+  正是 readiness 语义的**直接注入点** —— 改一个文件即可，容器毫不受影响。
+- **默认值安全**：不设环境变量时两个旋钮都不激活，不存在「忘了关导致生产带延迟」的风险。
+
+**⚠️ 设计细节：`/health` 刻意不看 `NOT_READY_FILE`**
+
+如果 `/health` 也读这个文件，那 liveness 会跟着失败 → 容器被杀 ——
+那就把「暂时不该接流量」错误地升级成了「重启」。**两个端点必须反映不同语义**，
+这个刻意的不对称本身就是教学材料。
+
+**实测结果**（`scripts/verify_d5.sh` 全绿）
+
+| 场景 | 结果 |
+| --- | --- |
+| 默认（不设变量） | `/health` 200、`/ready` 200，行为与 v0.1.0 一致 |
+| 标记文件存在 | `/ready` **200 → 503 → 200**；`/health` **全程 200** |
+| `STARTUP_DELAY_SECONDS=6` | 端口延迟约 6s 才可访问 |
+
+**复核条件**：W2 接入 pgvector 后，`/ready` 改为真实查数据库连通性，
+`NOT_READY_FILE` 这个旋钮可保留（做故障演练），也可删（用「停数据库」来演示）。
+
+---
+
+## D14 · 排错演练用独立 Deployment，不污染主应用（2026-10-09 · W1 D5）
+
+**背景**：D5 第 2 步要练「错镜像 tag / 内存 limit 过小」的排错。
+最直接的做法是改主应用 `llmops-api` 的清单，但那样会破坏已验证的状态。
+
+**决策**：每次演练 `kubectl create deployment <d5-xxx>` 建**独立** Deployment，
+演练完 `kubectl delete`，主应用全程不动。
+
+**三种演练的判据（实测值）**
+
+| 故障 | 注入方式 | 关键判据 | 实测 |
+| --- | --- | --- | --- |
+| 镜像 tag 错 | `llmops-api:v9.9.9` | `STATUS=ImagePullBackOff` | ✅ events 里 `failed to resolve reference "docker.io/library/llmops-api:v9.9.9"` |
+| 内存过小 | limit `32Mi`（实测占用 ~40MB） | `lastState.reason=OOMKilled` + **退出码 137** | ✅ `137 = 128 + 9(SIGKILL)` |
+| readiness 路径错 | `/readiness`（正确是 `/ready`） | `STATUS=Running` 但 `READY=0/1`、`RESTARTS=0`、EndpointSlice 空 | ✅ 事件 `statuscode: 404` |
+
+**⚠️ 本地 kind 环境的一个坑（记录备查）**：`llmops-api` 是本地构建的镜像，
+只存在于 kind 节点里。tag 写错时，kubelet 会**跑去 Docker Hub** 找
+（错误信息是 `docker.io/library/llmops-api:v9.9.9`），
+**看起来像网络问题，实际是「本地根本没有这个 tag」** —— 别被错误信息带偏。
+
+**复核条件**：接上真实镜像仓库（Harbor / ECR）后，tag 错的表现会变成 401/403（权限），
+届时判据需相应调整。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [ ] 为什么用 Helm 而不是裸 YAML（W2）

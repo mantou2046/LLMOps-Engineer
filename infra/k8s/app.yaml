@@ -1,7 +1,8 @@
 # =============================================================================
-# W1 D3 产出物 · K8s 清单
+# W1 D3 + D5 产出物 · K8s 清单
 # -----------------------------------------------------------------------------
-# Deployment + Service。用来把 D2 的镜像（llmops-api:0.1.0）跑进 kind 集群。
+# Deployment + Service。用来把 D2 的镜像跑进 kind 集群。
+# D3 建立基础版本；D5 补齐三种探针（startup / liveness / readiness）。
 #
 # 应用：
 #   kubectl apply -f infra/k8s/app.yaml
@@ -9,10 +10,15 @@
 #   kubectl delete -f infra/k8s/app.yaml
 #
 # ⚠️ 关键设计点（D3 卡片「卡点」那条的正解）：
-#   image: llmops-api:0.1.0   ← 用**具体 tag**，绝不用 latest
+#   image: llmops-api:0.2.0   ← 用**具体 tag**，绝不用 latest
 #   imagePullPolicy: IfNotPresent  ← 镜像已在 kind 节点里（kind load），
 #       不能用 Always —— 否则 kubelet 会跑去 Docker Hub 拉一个不存在的
 #       llmops-api，直接 ImagePullBackOff。
+#
+# ⚠️ D5 三种探针的分工（本文件最重要的部分，见下方各 probe 的注释）：
+#   startupProbe   —— 只保护启动期。成功前 liveness/readiness 都不执行。
+#   livenessProbe  —— 判断「何时重启」。失败 = 容器被杀重启。
+#   readinessProbe —— 判断「何时接流量」。失败 = 从 EndpointSlice 摘掉，**不重启**。
 # =============================================================================
 
 ---
@@ -35,14 +41,23 @@ spec:
       containers:
         - name: api
           # 具体 tag（D2 构建产物）；kind 里需先 kind load docker-image 才能取到
-          image: llmops-api:0.1.0
+          image: llmops-api:0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8000
           env:
             - name: APP_VERSION
-              value: "0.1.0"
+              value: "0.2.0"
+            # ---- D5 演示旋钮：慢启动 ------------------------------------------
+            # 默认 "0" = 不延迟，行为与 D3 一致。
+            # 演示 startupProbe 时改成 "20"（20 秒启动）：
+            #   ⚠️ 千万别在**只有 liveness** 的老清单上这么做 —— 20s 启动 +
+            #      initialDelaySeconds 5s + failureThreshold 3×10s = 会在启动完成前
+            #      就被判定失败并杀掉，陷入启动即被杀的循环（CrashLoopBackOff）。
+            #      这正是 startupProbe 存在的理由。
+            - name: STARTUP_DELAY_SECONDS
+              value: "0"
           # 资源请求/限制：给 scheduler 提供调度依据，也能防单个 Pod 吃满节点
           resources:
             requests:
@@ -51,19 +66,88 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
-          # 探针（D5 会专门练三种；这里先用最小可用版本）
+
+          # =====================================================================
+          # startupProbe —— 保护慢启动的容器
+          # =====================================================================
+          # 语义：配置后，**在它成功之前，liveness 与 readiness 都不执行**。
+          #       只在启动阶段探测；一旦成功一次，就永不再跑，接力棒交给 liveness。
+          #       若始终不成功 → 超过 failureThreshold 次后**杀容器**并按 restartPolicy 处理。
+          #
+          # 参数推算：
+          #   periodSeconds: 2      → 每 2 秒探一次（启动期要灵敏，探测很廉价）
+          #   failureThreshold: 30  → 30 × 2 = **最多容忍 60 秒启动**
+          #   实测本应用启动 < 2 秒，60 秒是 30 倍余量 —— 刻意留足，因为
+          #   「启动上限」设小了会把偶发的慢启动变成误杀。
+          #
+          # 为什么不让 liveness 自己扛？因为它同时要负责「尽快发现死锁」——
+          # 这两个目标对参数的要求是**冲突**的：启动要宽容，死锁要灵敏。
+          # startupProbe 把「宽容」这一段单独隔离出去，liveness 就能放心设灵敏。
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+            timeoutSeconds: 1
+
+          # =====================================================================
+          # livenessProbe —— 判断「何时重启」
+          # =====================================================================
+          # 语义：连续失败超过 failureThreshold 次 → kubelet **重启容器**。
+          #       用于捕捉「进程活着但卡死」的场景（死锁、无限等待）。
+          #       ⚠️ 不等待 readiness 成功；有 startupProbe 时启动期不执行。
+          #
+          # 参数推算：
+          #   periodSeconds: 10     → 每 10 秒一次
+          #   failureThreshold: 3   → 连续 3 次失败才重启 = **最多 30 秒反应窗口**
+          #   timeoutSeconds: 1     → 单次探测 1 秒超时（默认值，够用）
+          #
+          # 为什么不用 initialDelaySeconds？
+          #   有 startupProbe 兜住启动期后，liveness 从容器**一启动**就可以探，
+          #   因为 startup 成功前它根本不会执行。写 initialDelaySeconds 反而
+          #   会拖慢「发现真死锁」的速度。
+          #
+          # ⚠️ 打的是 /health（不查外部依赖）。若这里改成查数据库，数据库抖动
+          #    会触发重启，把「依赖故障」放大成「服务反复重启」—— 那是 readiness 的活。
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 5
             periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 1
+
+          # =====================================================================
+          # readinessProbe —— 判断「何时接流量」
+          # =====================================================================
+          # 语义：失败 → EndpointSlice 控制器把本 Pod 的 IP 从所有匹配 Service
+          #       的 EndpointSlice 中**摘掉**，于是 Service 不再给它转发流量。
+          #       ⚠️ **容器不会被杀**，Pod 一直显示 Running。
+          #       整个生命周期都在探（不只启动期）。
+          #
+          # 参数推算：
+          #   periodSeconds: 3      → 每 3 秒一次（比 liveness 灵敏）
+          #   failureThreshold: 2   → 连续 2 次失败 = **约 6 秒摘流量**
+          #   successThreshold: 1   → 恢复 1 次成功即重新接流量（默认值）
+          #
+          # 为什么比 liveness 灵敏？
+          #   摘错流量的代价（短暂 503）远低于误杀容器的代价（重启 + 冷启动）。
+          #   代价低 → 可以激进；liveness 代价高 → 必须保守。
+          #
+          # ⚠️ D5 卡片点名的坑：这个路径若写错（比如写成 /readiness），
+          #    Pod 会**永远 Running 却永远不接流量** —— 症状是 Service 无响应
+          #    但 `kubectl get pods` 一切正常，极易误判成「网络问题」。
+          #    定位靠 `kubectl get endpoints` / `describe pod` 里的
+          #    "Readiness probe failed" 事件。
           readinessProbe:
             httpGet:
               path: /ready
               port: http
-            initialDelaySeconds: 3
-            periodSeconds: 5
+            periodSeconds: 3
+            failureThreshold: 2
+            successThreshold: 1
+            timeoutSeconds: 1
 ---
 apiVersion: v1
 kind: Service
@@ -72,8 +156,7 @@ metadata:
   labels:
     app: llmops-api
 spec:
-  # ClusterIP：仅集群内可达。本地验证走 kubectl port-forward（见 cheatsheet）。
-  # D4 会加 Ingress；那时也可以改成 NodePort / LoadBalancer。
+  # ClusterIP：仅集群内可达。外部访问走 Ingress（D4）。
   type: ClusterIP
   selector:
     app: llmops-api # ⚠️ 靠这个 label 找到上面 Deployment 的 Pod
