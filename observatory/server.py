@@ -125,7 +125,16 @@ def kubectl_json(*args: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _age(creation_ts: str | None) -> int:
-    """K8s 的 creationTimestamp（RFC3339）→ 已存在秒数。"""
+    """K8s 的 creationTimestamp（RFC3339）→ 已存在秒数。
+
+    ⚠️ 这里**必须**两端都用 UTC —— 不要「顺手改成 datetime.now()」。
+        K8s 返回的 creationTimestamp 带 Z 后缀（UTC），
+        只有减去另一个 UTC 时刻，差值才与机器时区无关。
+        若一边换成本地时间，在 UTC+8 上会凭空多出 8 小时（28800 秒）。
+        这是与上面 timestamp 字段相反的处理原则：
+          · 给**人看**的时刻   -> 本地时间
+          · **计算时长/跨时区** -> UTC
+    """
     if not creation_ts:
         return 0
     try:
@@ -358,8 +367,15 @@ def collect_state() -> dict:
     except KubectlError:
         pass
 
+    # ⚠️ 用 **本地时间**，不是 UTC。
+    # 这里踩过一次：原写法是 datetime.now(timezone.utc)，导致页面右上角的
+    # 时钟比墙上时间慢 8 小时（UTC+8），而同一页的操作时间线用的却是本地时间
+    # —— 同一屏出现两个相差 8 小时的时间，比不显示时间更糟。
+    # 判定：给人看的界面一律用本地时间；只在跨时区计算/存储时才用 UTC。
+    # （下面的 _age() 属于后者，所以它继续用 UTC，是对的。）
     return {
-        "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "timestampFull": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "deployment": dep_status,
         "probes": probes,
         "pods": pods,

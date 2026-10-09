@@ -262,7 +262,10 @@ async function tick() {
     renderSummary(state);
     renderPods(state);
     renderEndpoints(state);
-    $('tick').textContent = '· ' + (state.timestamp || '');
+    // 显示后端给的本地时间。之前这里显示的是 UTC —— 比墙上时间慢 8 小时，
+    // 而同一页的操作时间线用的是本地时间，导致同屏两个时钟不一致。
+    // 后端已改为本地时间，前端顺带把「最后刷新」四个字标出来，避免被误读成别的。
+    $('tick').textContent = '· 刷新于 ' + (state.timestamp || '');
 
     // 存快照供下轮 diff
     prevPods = new Set((state.pods || []).map(p => p.name));
