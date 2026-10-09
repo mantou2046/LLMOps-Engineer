@@ -79,6 +79,17 @@ PLACEHOLDER_RX = [
     re.compile(r"(?i)^[A-Za-z_][\w.]*:[A-Za-z_][\w.]*@?$"),
 ]
 
+# 「键名语义上就不是凭据值」的键 —— 这类键的值是**引用 / 标识符**，不是秘密。
+# 背景（2026-10-09）：加 ingress-nginx 上游清单时，
+#   `secretName: ingress-nginx-admission`（K8s 字段名 + 资源名）
+#   被当成「疑似凭据键值」误报 —— 它 23 字符，正好撞上长度启发式。
+# 这些键的**值永远是名字**，泄露它不构成泄露凭据（真正的凭据在 Secret 的 data 里）。
+# ⚠️ 变量名刻意不含敏感词、值另起一行：否则本文件会被自己的 KV 启发式扫中（自伤）。
+_KEY_IS_REF = re.compile(
+    r"(?i)^(?:secret[-_]?name|secretname|secretkeyref|configmap[-_]?name|"
+    r"service[-_]?account(?:[-_]?name)?|imagePullSecrets?)$"
+)
+
 
 def is_placeholder(value: str) -> bool:
     """判断一个「值」是否只是占位符 / 引用，而非真实凭据。
@@ -105,6 +116,10 @@ SKIP_DIRS = {
     ".git", ".venv", "venv", "env", "node_modules", "__pycache__",
     ".pytest_cache", ".ruff_cache", ".mypy_cache", "mlruns", "mlartifacts",
     "models", "dist", "build", ".idea", ".vscode",
+    # 本地备份目录：含**真实**凭据与库内容（正是为了不丢才备份的），
+    # 已 gitignore 永不提交 → 扫它只会制造上百条噪音，掩盖真正的问题。
+    # 背景（2026-10-09）：导出 K8s 资源清单后，全树扫描从 2 条暴增到 98 条。
+    ".local-backup",
 }
 
 # 模板文件：内容本身就是「示例敏感词」，扫它必然自伤
@@ -212,9 +227,9 @@ def scan_file(p: Path, patterns: list[tuple[str, re.Pattern[str]]]) -> list[str]
                     f"{rel}:{lineno}  命中「带口令的连接串」  {mask(mc.group(0))}"
                 )
                 continue
-            # 3) 键值型：值为占位符则放行
+            # 3) 键值型：值为占位符则放行；键名本身「不是凭据」也放行
             m = KV.search(line)
-            if m and not is_placeholder(m.group(2)):
+            if m and not is_placeholder(m.group(2)) and not _KEY_IS_REF.match(m.group(1).strip()):
                 findings.append(
                     f"{rel}:{lineno}  命中「疑似凭据键值」  键={m.group(1)}  值={mask(m.group(2))}"
                 )

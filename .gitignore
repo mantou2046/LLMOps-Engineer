@@ -62,6 +62,11 @@ models/
 chroma/
 pgvector_data/
 
+# ---- 本地备份（含真实库内容，绝不入库）----
+.local-backup/
+*.dump
+pgv.tar
+
 # ---- Notebook ----
 .ipynb_checkpoints/
 *.ipynb.bak
