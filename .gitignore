@@ -91,3 +91,8 @@ logs/
 *.log
 tmp/
 .tmp/
+
+# ---- 联调截图产物（脚本入库，截图不入库）----
+# observatory/screens/ 下 *.js / *.py 是 Playwright 联调与竞态测试脚本，要提交；
+# 它们生成的 PNG 截图是一次性验证产物，不入库（本地重建即可）。
+observatory/screens/*.png

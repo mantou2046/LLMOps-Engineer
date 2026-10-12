@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>K8s 观测台 · llmops-api</title>
+<title>K8s 观测台 · LLMOps 多环境</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='13'%3E%E2%98%B8%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -19,6 +20,11 @@
 </header>
 
 <div id="error" class="err-banner" style="display:none"></div>
+
+<div class="switcher" id="switcher">
+  <span class="sw-label">观测目标</span>
+  <div class="sw-tabs" id="sw-tabs"></div>
+</div>
 
 <div class="summary">
   <div class="stat" id="s-desired">   <div class="k">期望副本</div><div class="v" id="v-desired">–</div></div>
@@ -40,6 +46,11 @@
       <div class="eps" id="eps"></div>
     </section>
 
+    <section id="rel-sec">
+      <h2>Helm 发布历史 <span class="count">— revision / status / 回滚记录</span></h2>
+      <div id="releases"></div>
+    </section>
+
     <section>
       <h2>状态速查 <span class="count">遇到不认识的字段看这里</span></h2>
       <div class="legend">
@@ -59,7 +70,7 @@
 
   <div>
     <section>
-      <h2>操作 <span class="count">点一下，真的动集群</span></h2>
+      <h2>操作 <span class="count">点一下，真的动集群 · 作用于当前所选目标</span></h2>
       <div class="actions" id="actions"></div>
     </section>
 
