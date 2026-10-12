@@ -1,0 +1,244 @@
+# Default values for llmops-chart.
+# YAML-formatted file: declare variables to be passed into your templates.
+#
+# ⚠️ 本文件的定位（D6 核心认知）：
+#    templates/ 里**不写死业务值**，一律用 {{ .Values.xxx }} 引用这里；
+#    同一套模板 + 不同的 values 文件（values-dev.yaml / values-prod.yaml）
+#    = 同一份 Chart 部署出多个互不干扰的环境。这就是「双环境」的实现方式。
+
+# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+# 与 W1 app.yaml 保持一致（2 副本，删一个能看到自愈）
+replicaCount: 2
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  repository: llmops-api
+  # This sets the pull policy for images.
+  # ⚠️ 必须 IfNotPresent：镜像靠 kind load 塞进节点，用 Always 会去 Docker Hub
+  #    拉一个不存在的 llmops-api，直接 ImagePullBackOff。
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  # 留空 = 回落到 Chart.yaml 的 appVersion（0.2.0）。
+  tag: ""
+
+# This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: ""
+
+# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+serviceAccount:
+  # Specifies whether a service account should be created.
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account.
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template.
+  name: ""
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+  # Service 对外的端口（与 W1 一致：80）
+  port: 80
+
+# ⚠️ 容器端口单独拎出来，不要复用 service.port。
+#    官方骨架的 deployment.yaml 里写的是 containerPort: {{ .Values.service.port }}，
+#    那是「容器端口 == Service 端口」的简化假设；本应用是 port 80 → targetPort 8000，
+#    两者不相等，必须分开配置，否则 Service 会把流量转到容器里没人监听的 80。
+containerPort: 8000
+
+# 应用环境变量（键值对，会渲染成容器 env）
+# STARTUP_DELAY_SECONDS 是 W1 D5 留下的「慢启动演示旋钮」：
+#   默认 "0" = 不延迟；演示 startupProbe 时用 --set 覆盖成 "20"。
+env:
+  - name: APP_VERSION
+    value: "0.2.0"
+  - name: STARTUP_DELAY_SECONDS
+    value: "0"
+
+# =============================================================================
+# ConfigMap · 非敏感配置（来自 W1 的 config.yaml）
+# =============================================================================
+# ⚠️ 与下方 secret 的分工：
+#   这里放「可以进 Git」的配置（日志级别、主机名、端口号…）；
+#   密码 / API Key 一律走 secret 段 + 单独的 values-secret.yaml（进 .gitignore）。
+#
+# ⚠️ 注入方式：环境变量（envFrom）——改值后 Pod 需重建才会生效。
+#    若改用 volume 挂载，ConfigMap 改动会热更新到容器内文件（W1 D4 的观察作业）。
+configMap:
+  # 是否创建 ConfigMap。false 时不渲染该模板（也不会给 Pod 注入 envFrom）
+  enabled: true
+  # ConfigMap 名字。留空 = 自动用 {{ include "llmops-chart.fullname" . }}
+  name: ""
+  data:
+    APP_ENV: "dev"
+    LOG_LEVEL: "INFO"
+    POSTGRES_HOST: "postgres"
+    POSTGRES_PORT: "5432"
+    POSTGRES_DB: "llmops"
+    POSTGRES_USER: "llmops"
+    LITELLM_BASE_URL: "http://litellm:4000"
+    LITELLM_CACHE_ENABLED: "true"
+
+# =============================================================================
+# Secret · 敏感信息
+# =============================================================================
+# ⚠️⚠️ 本段故意**不含任何真值** —— 仓库里只有结构与占位符。
+#
+# 真值注入方式（二选一）：
+#   A. 复制 values-secret.example.yaml → values-secret.yaml，填真值，
+#      安装时加 -f values-secret.yaml（该文件已被 .gitignore 挡住）
+#   B. 用 --set 逐项传（会留在 shell 历史里，不推荐）
+#
+#    helm install llmops-dev ./llmops-chart -n dev \
+#      -f values-dev.yaml -f values-secret.yaml
+#
+# 若 enabled: false → 不渲染 Secret 模板（Pod 也就不会有对应 env）；
+# 适用于「Secret 已由外部（如 SOPS / External Secrets）创建」的场景。
+secret:
+  enabled: true
+  name: ""
+  # key → value 映射。**把值留空**，真值放 values-secret.yaml 覆盖。
+  data:
+    POSTGRES_PASSWORD: ""
+    LLM_PRIMARY_API_KEY: ""
+    LITELLM_MASTER_KEY: ""
+  # 必填键清单：列在这里的键若值为空，则 helm install 阶段直接报错。
+  # 空列表 = 不校验（本地纯演示用，Pod 起得来但可能连不上真库）。
+  # 生产环境建议至少列上真正的凭据键，见 values-prod.yaml。
+  requiredKeys: []
+
+# This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: llmops.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: chart-example-tls
+    #   hosts:
+    #     - chart-example.local
+
+# -- Expose the service via gateway-api HTTPRoute
+# ⚠️ 本机 kind 集群没有装 Gateway API CRD，这个模板渲染出来也 apply 不了。
+#    默认关闭，且建议直接删掉 templates/httproute.yaml 减负。
+httpRoute:
+  # HTTPRoute enabled.
+  enabled: false
+  # HTTPRoute annotations.
+  annotations: {}
+  # Which Gateways this Route is attached to.
+  parentRefs:
+  - name: gateway
+    sectionName: http
+    # namespace: default
+  # Hostnames matching HTTP header.
+  hostnames:
+  - chart-example.local
+  # List of rules and filters applied.
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /headers
+
+# 资源请求/限制（与 W1 app.yaml 一致）
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+#
+# ⚠️ W1 D5 的三探针分工（改路径前务必想清楚）：
+#   startupProbe   —— 只保护启动期；成功前 liveness/readiness 都不跑
+#   livenessProbe  —— 判断「何时重启」，打 /health（不查外部依赖）
+#   readinessProbe —— 判断「何时接流量」，打 /ready；失败只摘流量不重启
+#
+# 注意这里只放「探针对象」，periodSeconds/failureThreshold 等参数写在 values 里，
+# 便于不同环境调参（dev 可以放宽，prod 收紧）。
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 2
+  failureThreshold: 30
+  timeoutSeconds: 1
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 10
+  failureThreshold: 3
+  timeoutSeconds: 1
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  periodSeconds: 3
+  failureThreshold: 2
+  successThreshold: 1
+  timeoutSeconds: 1
+
+# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
+# ⚠️ kind 集群没有 metrics-server，HPA 拿不到指标会一直 <unknown>。
+#    保持 false；若要演示 HPA 需先自行装 metrics-server。
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+  # - name: foo
+  #   secret:
+  #     secretName: mysecret
+  #     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+  # - name: foo
+  #   mountPath: "/etc/foo"
+  #   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

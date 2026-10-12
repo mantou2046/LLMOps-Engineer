@@ -597,9 +597,58 @@ readiness 的 `failureThreshold` 可能要调大（避免依赖抖动导致频�
 
 ---
 
+## D15 · 用 Helm 做应用发布，而不是裸 YAML（2026-10-12 · W2 D6）
+
+**背景**：W1 的应用清单是**一份裸 YAML**（`infra/k8s/app.yaml`），deploy / Service /
+ConfigMap / Secret 全在里面，值写死。要到 W2 起支持 dev / prod 双环境时，
+裸 YAML 只有两条路：复制成两份各改各的（改一处要记得改另一处），
+或者用 `envsubst` 之类在 apply 前替换（没有版本、没有回滚记录）。
+`helm rollback` 这类「一条命令退回上一版」的能力，裸 YAML 完全没有 ——
+W1 D5 的排错演练也印证了：出问题只能手动把旧文件重新 `apply` 一遍。
+
+**决策**：W2 起所有 K8s 应用用 **Helm Chart** 管理，模板进 `templates/`，
+环境差异全部下沉到 `values.yaml`，并按环境拆 `values-dev.yaml` / `values-prod.yaml`。
+
+**理由**
+
+1. **一个应用 = 十几个资源的组合**（Deployment + Service + ConfigMap + Secret +
+   ServiceAccount…）。裸 YAML 跨环境只能复制粘贴改值，无版本、无回滚；
+   Helm 把它们打包成一个 Chart（模板 + values），**换一套 values 即出一套环境**。
+2. **Release 自带版本历史**。每次 install / upgrade 生成递增 revision，
+   翻车一条 `helm rollback <rev>` 回退，且回滚本身也记为一个新 revision（可追溯）。
+3. **与 W1 衔接零返工**。D4 的 Ingress / ConfigMap / Secret 结构原样搬进 Chart 模板，
+   `verify_*.sh` 的验收口径不变（探针路径、端口、环境变量语义全部保留）。
+
+**实测证据（W2 D6 当天演练）**
+
+| 环节 | 做法 | 结果 |
+| --- | --- | --- |
+| 裸 YAML → Chart | 改造 `helm create` 官方骨架，只改 3 个文件 | `helm lint` **0 failed**；`helm template` 渲染 **6 个资源** |
+| 双环境实装 | `llmops-dev`(ns dev) + `llmops-prod`(ns prod)，各带一套 values | 双双 **REVISION 1 deployed**；`kubectl exec printenv` 验出 dev=`0.2.0-dev`/prod=`0.2.0`，环境隔离成立 |
+| 故意发坏版本 | `--set readinessProbe.httpGet.path=/bad-path --wait` | helm 退出码 1，REVISION 2 = **failed** |
+| **回滚** | `helm rollback llmops-dev 1` | `Rollback was a success!`，history 成 `1 deployed → 2 failed → 3 Rollback to 1` |
+
+**⭐ 最值得记的一条**：坏版本期间**服务零中断** —— Endpoints 始终只有旧 Pod，
+`/health` 连打 3 次全 200、`RESTARTS` 始终 0，两个 ReplicaSet 并存（旧 1 Ready / 新 0 Ready）。
+**readinessProbe 把「发布失败」挡在流量入口外，而不是等用户报障** ——
+这是 D12「readiness 比 liveness 灵敏」的实战兑现。
+
+**两条踩坑（备查）**
+
+- 官方骨架的 `deployment.yaml` 写的是 `containerPort: {{ .Values.service.port }}`，
+  即**假设「容器端口 == Service 端口」**。本应用是 `Service 80 → 容器 8000`，
+  不拆出独立 `.Values.containerPort` 的话，流量会转到没人监听的 80 端口。
+- Helm 的**列表值是整体替换**而非合并：`secret.requiredKeys` 这类清单，
+  若在 `values-secret.yaml` 里也写一份，会**覆盖**掉 `values-prod.yaml` 的清单，安全闸门形同虚设。
+
+**复核条件**：若某应用**长期单环境**且资源 ≤3 个，退回裸 YAML（或 kustomize）更轻，
+不必硬套 Helm —— 上 Helm 的收益来自「多环境 × 多资源 × 需要回滚」。
+
+---
+
 ## 待记录（后续每天补充）
 
-- [ ] 为什么用 Helm 而不是裸 YAML（W2）
+- [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 D15
 - [ ] prompt 为什么是代码不是配置（W3）
 - [ ] 为什么先 RAG 而不是先微调（W7）
 - [ ] 语义缓存阈值怎么定（W7）

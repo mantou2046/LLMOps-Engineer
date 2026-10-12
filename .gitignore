@@ -30,6 +30,13 @@ htmlcov/
 credentials.json
 service-account*.json
 
+# Helm：含 Secret 真值的 values 文件绝不入库（本仓库 charts 用 -f 本地注入）
+# 占位符版本（values-secret.example.yaml）**要**提交，供他人照抄结构
+values-secret.yaml
+values-secret-*.yaml
+**/values-secret.yaml
+**/values-secret-*.yaml
+
 # 自定义敏感词表：真实词条绝不能进公开仓库
 # （否则「防泄露清单」本身就成了泄露源；只提交 sensitive_terms.example.txt）
 scripts/sensitive_terms.txt

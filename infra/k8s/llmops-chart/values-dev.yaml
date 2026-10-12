@@ -1,0 +1,69 @@
+# =============================================================================
+# values-dev.yaml · 开发环境覆盖值
+# -----------------------------------------------------------------------------
+# 用法（与 values.yaml 叠加，本文件的键覆盖默认值）：
+#   helm install llmops-dev ./llmops-chart -n dev --create-namespace -f values-dev.yaml
+#   helm upgrade llmops-dev ./llmops-chart -n dev -f values-dev.yaml
+#
+# ⚠️ Helm 的 values 合并是**浅合并 + 递归合并 map**，但**列表是整体替换**：
+#      values.yaml 的 env 列表若在此处只写一项，另一项会**消失**。
+#      所以下面 env 写全两项，不做"只覆盖一个"的想当然操作。
+# =============================================================================
+
+# dev 只要 1 个副本：省资源，改起来快
+replicaCount: 1
+
+# dev 用 dev 标签的镜像（当前与 prod 同镜像，将来可分开）
+image:
+  repository: llmops-api
+  pullPolicy: IfNotPresent
+  tag: "0.2.0"
+
+# 资源给宽松些，方便本地随便压测
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# ⚠️ 列表整体替换：两项都要写全
+env:
+  - name: APP_VERSION
+    value: "0.2.0-dev"
+  - name: STARTUP_DELAY_SECONDS
+    value: "0"
+
+# ConfigMap：dev 环境用 DEBUG 日志、明确标识 APP_ENV=dev
+configMap:
+  enabled: true
+  data:
+    APP_ENV: "dev"
+    LOG_LEVEL: "DEBUG"
+    POSTGRES_HOST: "postgres"
+    POSTGRES_PORT: "5432"
+    POSTGRES_DB: "llmops"
+    POSTGRES_USER: "llmops"
+    LITELLM_BASE_URL: "http://litellm:4000"
+    LITELLM_CACHE_ENABLED: "true"
+
+# 探针：dev 放宽一些，避免本地资源紧张时误杀
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  periodSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 2
+
+# ingress：dev 用独立 host，避免和 prod 抢
+ingress:
+  enabled: false
+  className: "nginx"
+  hosts:
+    - host: llmops-dev.local
+      paths:
+        - path: /
+          pathType: Prefix

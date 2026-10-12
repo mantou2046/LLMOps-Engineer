@@ -1,0 +1,85 @@
+# =============================================================================
+# values-prod.yaml · 生产（模拟）环境覆盖值
+# -----------------------------------------------------------------------------
+# 用法：
+#   helm install llmops-prod ./llmops-chart -n prod --create-namespace -f values-prod.yaml
+#
+# ⚠️ 与 dev 的关键差异（也是"双环境"要演示的对比点）：
+#      replicaCount  1 → 2
+#      LOG_LEVEL     DEBUG → INFO
+#      资源 limits   宽松 → 收紧（贴近真实配额）
+#      Secret        requiredKeys 为空 → [POSTGRES_PASSWORD]（生产必须有真凭据）
+# =============================================================================
+
+# prod 2 个副本：能演示"删一个 Pod 看自愈"
+replicaCount: 2
+
+image:
+  repository: llmops-api
+  pullPolicy: IfNotPresent
+  tag: "0.2.0"
+
+# 资源收紧：贴近生产配额
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    cpu: 300m
+    memory: 384Mi
+
+# ⚠️ 列表整体替换：两项都要写全
+env:
+  - name: APP_VERSION
+    value: "0.2.0"
+  - name: STARTUP_DELAY_SECONDS
+    value: "0"
+
+# ConfigMap：prod 用 INFO 日志
+configMap:
+  enabled: true
+  data:
+    APP_ENV: "prod"
+    LOG_LEVEL: "INFO"
+    POSTGRES_HOST: "postgres"
+    POSTGRES_PORT: "5432"
+    POSTGRES_DB: "llmops"
+    POSTGRES_USER: "llmops"
+    LITELLM_BASE_URL: "http://litellm:4000"
+    LITELLM_CACHE_ENABLED: "true"
+
+# Secret：生产强制要求真凭据（装的时候必须 -f values-secret.yaml）
+# ⚠️ 只列"必须非空"的键 —— LLM_PRIMARY_API_KEY / LITELLM_MASTER_KEY 在本地演练里
+#    本来就走内网 LiteLLM，不需要真上游 key，所以不列入必填。
+secret:
+  enabled: true
+  requiredKeys:
+    - POSTGRES_PASSWORD
+
+# 探针：prod 收紧，尽快发现问题
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 10
+  failureThreshold: 3
+  timeoutSeconds: 1
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  periodSeconds: 3
+  failureThreshold: 2
+  successThreshold: 1
+  timeoutSeconds: 1
+
+# ingress：prod 用正式 host
+ingress:
+  enabled: false
+  className: "nginx"
+  hosts:
+    - host: llmops.local
+      paths:
+        - path: /
+          pathType: Prefix
