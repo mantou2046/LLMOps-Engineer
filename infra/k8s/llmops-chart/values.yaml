@@ -39,6 +39,32 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template.
   name: ""
 
+# =============================================================================
+# RBAC · 最小权限（W2 D7）
+# =============================================================================
+# ⚠️ 先想清楚一件事：**本应用其实一个 API 都不需要调**。
+#    真正最严格的做法是 serviceAccount.automount: false + 不建任何 Role ——
+#    连 token 都不往 Pod 里挂，被攻破时攻击者手里没有任何集群凭据。
+#
+#    这里仍然给出一份**极窄**的 Role，是为了把 RBAC 的机制演示完整：
+#      · 专属 SA（不用 default）      → 权限可按工作负载单独回收
+#      · Role（不是 ClusterRole）      → 作用域锁死在**本命名空间**
+#      · resourceNames 收窄到单个对象  → 连"同命名空间的其他 ConfigMap"都读不到
+#    演示完可用 `kubectl auth can-i` 逐条证明它读不到 Secret、删不了 Pod。
+#
+# 三层模型速记：Role（能做什么）/ RoleBinding（把 Role 绑给谁）/ ClusterRole（跨命名空间）
+#
+# ⚠️ 具体 rules **故意写在 templates/rbac.yaml 里，不放这儿** ——
+#    values 文件是纯 YAML，**Helm 不会渲染其中的 {{ }} 模板语法**。
+#    而这条 Role 要用 `{{ include "llmops-chart.configMapName" . }}` 拿到本
+#    Release 的 ConfigMap 名（多环境隔离），所以只能写在模板里。
+#    （若坚持放 values，得在模板里用 `tpl` 函数二次渲染，反而更绕、更易错。）
+rbac:
+  # 是否渲染 Role + RoleBinding。false = 不建（Pod 仍用专属 SA，但零权限）
+  create: true
+  # Role 名。留空 = 自动用 <fullname>
+  roleName: ""
+
 # This is for setting Kubernetes Annotations to a Pod.
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
 podAnnotations: {}
@@ -75,7 +101,7 @@ containerPort: 8000
 #   默认 "0" = 不延迟；演示 startupProbe 时用 --set 覆盖成 "20"。
 env:
   - name: APP_VERSION
-    value: "0.2.0"
+    value: "0.3.0"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
 
@@ -215,9 +241,15 @@ readinessProbe:
   timeoutSeconds: 1
 
 # This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
-# ⚠️ kind 集群没有 metrics-server，HPA 拿不到指标会一直 <unknown>。
-#    保持 false；若要演示 HPA 需先自行装 metrics-server。
+# ⚠️ HPA 依赖 metrics-server。kind 集群**默认没装** ——
+#    没装时 HPA 的 TARGETS 会一直显示 <unknown>，且不会扩缩（不报错，只是不动）。
+#    安装清单见 infra/k8s/hpa-demo/metrics-server.yaml（已加 --kubelet-insecure-tls）。
+#
+# ⚠️ 开启后 Deployment 模板会**不再渲染 spec.replicas** ——
+#    副本数交由 HPA 接管；此时 values.replicaCount 对 Deployment 失效
+#    （但仍作为"未开 HPA 时的期望副本数"保留，便于随时关掉 HPA 回退）。
 autoscaling:
+  # 默认关闭：HPA 要有真实负载才看得出效果，不适合无脑全局开
   enabled: false
   minReplicas: 1
   maxReplicas: 100

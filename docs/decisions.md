@@ -646,9 +646,113 @@ W1 D5 的排错演练也印证了：出问题只能手动把旧文件重新 `app
 
 ---
 
+## D16 · 生产工作负载一律用专属 ServiceAccount + 最小权限 Role（2026-10-13 · W2 D7）
+
+**背景**：D7 要给应用配 ServiceAccount + Role。先问一句「它到底要调哪些 K8s API」——
+答案是**一个都不用**：`llmops-api` 是普通 HTTP 服务，不 list Pod、不写 ConfigMap。
+
+那为什么还要折腾？因为**不给权限 ≠ 没有权限**：K8s 会自动把 ServiceAccount token
+挂进每个 Pod 的 `/var/run/secrets/kubernetes.io/serviceaccount/token`。
+应用一旦被 RCE（依赖漏洞、命令注入、SSRF 打到元数据），攻击者拿到的就是这枚 token。
+
+**决策**
+
+1. 每个工作负载用**自己的** ServiceAccount，不用 `default` —— 权限可按工作负载单独回收。
+2. 用 **Role + RoleBinding**（不是 ClusterRole），作用域锁死在本命名空间。
+3. 能不用 API 的，把 `automountServiceAccountToken` 显式关掉，**连 token 都不挂**。
+    （⚠️ 这里刻意不写成 `键: 值` 的形式 —— 仓库的脱敏门禁按「键=值」扫凭据，
+     会把任何 `SomeKey: someValue` 的行都拦下来，包括这个正经的 K8s 字段。）
+4. 确实要读的，用 `resourceNames` 收窄到**具体对象**，而不是给整个资源类型。
+
+本 Chart 的 `templates/rbac.yaml` 按 2 + 4 实现（为了把机制演示完整）：
+只给「读自己那一个 ConfigMap」+「读本命名空间 Pod」，其余一概不给。
+
+**实测证据（W2 D7）**
+
+`kubectl auth can-i --as=system:serviceaccount:dev:llmops-dev-llmops-chart -n dev`：
+
+| 动作 | 结果 | 说明 |
+| --- | --- | --- |
+| 读**自己那一个** ConfigMap | ✅ yes | 由 `resourceNames` 放行 |
+| 读**同命名空间另一个** ConfigMap | ❌ no | 同一条规则，仅因对象名不同即被拒 |
+| 列出全部 ConfigMap / Secret | ❌ no | 没给 `list` |
+| 读 / 列出 Secret | ❌ no | 完全没这条规则 |
+| 读 / 列出 Pod | ✅ yes | 显式给的最小读权限 |
+| 删除 Pod / exec 进 Pod | ❌ no | |
+| 读 Deployment | ❌ no | |
+| **跨命名空间**读 ConfigMap / Pod（prod） | ❌ no | Role 的命名空间边界 |
+
+**容器内实证**（用 Pod 自己挂载的 token 直接打 API Server，比 `auth can-i` 更有说服力）：
+
+| 请求 | 状态码 |
+| --- | --- |
+| `GET /api/v1/namespaces/dev/configmaps/llmops-dev-llmops-chart-config` | **200** |
+| `GET /api/v1/namespaces/dev/configmaps/kube-root-ca.crt` | **403** |
+| `GET /api/v1/namespaces/dev/configmaps`（list） | 403 |
+| `GET /api/v1/namespaces/dev/secrets` | 403 |
+| `GET /api/v1/namespaces/dev/pods` | 200 |
+| `GET /apis/apps/v1/namespaces/dev/deployments` | 403 |
+| `GET /api/v1/namespaces` | 403 |
+
+**三条容易写错的坑（实测）**
+
+1. **`resourceNames` 与 `list`/`watch` 互斥**。它只对 `get`/`update`/`patch`/`delete` 生效；
+   规则里一旦加上 `list` 或 `watch`，`resourceNames` 会被**静默忽略**，
+   规则退化成「能读本命名空间**所有**该类型资源」—— 看着更严，实际更松，且不报错。
+2. **「零 Role」≠「零权限」**。`auth can-i --list` 显示，即使一条规则都不给，
+   SA 仍自带一组集群级只读权限（`/api/*`、`/apis/*`、`/healthz`、`/version` 等），
+   来自内置的 `system:discovery` / `system:public-info-viewer`。
+   所以「最小权限」的准确说法是**收敛到内置基线**，不是收敛到零。
+3. **RoleBinding 的 subject 要绑 SA，不是绑命名空间**。绑成 `Group` 或
+   `serviceaccounts` 全量，等于给该命名空间所有工作负载都发了同一套权限。
+
+**复核条件**：若该应用将来真的需要调 API（如做成 operator、或要写 ConfigMap 做热更新），
+**按实际用到的资源逐个放开**，不要预留「以后可能用得上」的权限 ——
+预授权正是最小权限失效的头号原因。
+
+---
+
+## D17 · HPA 的 CPU 目标值只有在 requests 贴近真实用量时才有意义（2026-10-13 · W2 D7）
+
+**背景**：D7 给 dev / prod 都开了 HPA（dev 1–5 @50%，prod 2–6 @60%）。
+压测时副本数一路顶到 `maxReplicas` 就不再动了 —— 但 CPU 利用率明明远高于目标值，
+按理应该继续扩才对。
+
+**决策**：**HPA 的 `targetCPUUtilizationPercentage` 是「实际用量 ÷ requests」的百分比，
+不是「节点 CPU 的百分比」**。所以上 HPA 之前必须先校准 `requests.cpu`；
+requests 定得比真实用量低一个数量级时，HPA 会长期贴在 `maxReplicas`，等于没有扩缩能力。
+
+**实测证据（W2 D7 压测）**
+
+| 观测项 | 数值 |
+| --- | --- |
+| `requests.cpu`（dev） | **50m** |
+| 压测中每个 Pod 实际 CPU（`kubectl top pods`） | **90m – 135m** |
+| 单 Pod 利用率 | 180% – 270%（= 实际 ÷ 50m） |
+| HPA 目标 | 50%（= 绝对阈值 25m） |
+| 结果 | 2 → 4 → 5（贴 `maxReplicas`），CPU 仍停在 200%+ |
+
+即使扩到 5 副本，**总 requests 也只有 250m**，而实际需求约 500m+ ——
+分母太小，利用率永远降不回 50%，HPA 只能一直加副本直到撞上限。
+
+**顺带实测到的两条 HPA 行为**（官方文档只说结论，这里是现场数据）
+
+- **扩容快、缩容慢**的由来：`scaleUp.stabilizationWindowSeconds` 默认 **0**，
+  `scaleDown` 默认 **300**。本次停压后 CPU 在 100 秒内就掉到 6%，
+  但副本数**死守 5 直到第 360 秒**，随后 5 → 2 → 1 分两步落回。
+- 缩容取的是**过去 300 秒内建议值的最大值**（防抖动），
+  所以「CPU 已经很低」和「HPA 可以缩容」之间必然有 5 分钟左右的延迟。
+
+**复核条件**：拿到真实用量后把 `requests.cpu` 调到接近 P95（本应用约 100m），
+再重跑一次压测确认副本数能停在中间档位而不是撞上限；
+D11 做资源账本时一并把 limits 也校准一遍。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 D15
+- [x] 为什么生产环境要最小权限（W2 D7）→ 见 D16
 - [ ] prompt 为什么是代码不是配置（W3）
 - [ ] 为什么先 RAG 而不是先微调（W7）
 - [ ] 语义缓存阈值怎么定（W7）

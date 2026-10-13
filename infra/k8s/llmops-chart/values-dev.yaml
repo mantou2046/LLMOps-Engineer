@@ -11,13 +11,15 @@
 # =============================================================================
 
 # dev 只要 1 个副本：省资源，改起来快
+# ⚠️ 下方开了 HPA 后，这个值对 Deployment 失效（副本数由 HPA 接管，
+#    起点是 autoscaling.minReplicas）；保留它是为了「关掉 HPA 就能回退」。
 replicaCount: 1
 
 # dev 用 dev 标签的镜像（当前与 prod 同镜像，将来可分开）
 image:
   repository: llmops-api
   pullPolicy: IfNotPresent
-  tag: "0.2.0"
+  tag: "0.3.0"
 
 # 资源给宽松些，方便本地随便压测
 resources:
@@ -28,12 +30,15 @@ resources:
     cpu: 500m
     memory: 256Mi
 
-# ⚠️ 列表整体替换：两项都要写全
+# ⚠️ 列表整体替换：三项都要写全
 env:
   - name: APP_VERSION
-    value: "0.2.0-dev"
+    value: "0.3.0-dev"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
+  # dev 打开 /work CPU 压测端点 —— HPA 扩缩容演示要有可控的 CPU 负载源
+  - name: ENABLE_LOAD_ENDPOINT
+    value: "1"
 
 # ConfigMap：dev 环境用 DEBUG 日志、明确标识 APP_ENV=dev
 configMap:
@@ -57,6 +62,16 @@ readinessProbe:
   failureThreshold: 3
   successThreshold: 1
   timeoutSeconds: 2
+
+# HPA：dev 打开，用于演示「压测时自动扩容、停压缩回」
+#   目标 50% 是**故意调低**的 —— 本应用 requests.cpu 只有 50m，
+#   50% = 25m 的绝对阈值，本地用 /work 压一下就能越过，演示成本低。
+#   ⚠️ 真实生产不会用这么低的目标值，否则副本数会长期贴上限、白烧钱。
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 50
 
 # ingress：dev 用独立 host，避免和 prod 抢
 ingress:

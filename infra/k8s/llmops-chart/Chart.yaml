@@ -15,7 +15,9 @@ type: application
 # This is the chart version. This version number should be incremented each time you make changes
 # to the chart and its templates, including the app version.
 # Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.1.0
+#
+# 0.2.0（2026-10-13 · W2 D7）：新增 templates/rbac.yaml（Role + RoleBinding，最小权限）
+version: 0.2.0
 
 # This is the version number of the application being deployed. This version number should be
 # incremented each time you make changes to the application. Versions are not expected to
@@ -23,5 +25,5 @@ version: 0.1.0
 # It is recommended to use it with quotes.
 #
 # ⚠️ 与 values.yaml 的 image.tag 联动：image.tag 为空时回落到这里的 appVersion。
-#    本应用实际镜像 tag 是 0.2.0（对应 W1 的 app.yaml），故保持一致。
-appVersion: "0.2.0"
+#    0.3.0（W2 D7）：新增 /work CPU 压测端点（默认关闭，见 ENABLE_LOAD_ENDPOINT）。
+appVersion: "0.3.0"

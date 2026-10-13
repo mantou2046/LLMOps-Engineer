@@ -14,6 +14,10 @@ W1 D5 补充（三种探针的演示能力）：
   · /ready 检查一个「不健康标记文件」 —— 不重启容器即可把 Pod 从 EndpointSlice
     摘掉，用于演示「readiness 失败 ≠ 容器被杀」这个最容易误判的区别
   两者默认都是「不影响正常行为」，生产语义不变。
+
+W2 D7 补充（HPA 扩缩容的演示能力）：
+  · ENABLE_LOAD_ENDPOINT —— 开启后 /work?seconds=N 在容器内空转 N 秒烧 CPU。
+    同样**默认关闭**：探针端点太轻，压不出 HPA，需要一个可控的 CPU 负载源。
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
@@ -41,6 +45,18 @@ STARTUP_DELAY_SECONDS = int(os.getenv("STARTUP_DELAY_SECONDS", "0"))
 #   kubectl exec deploy/llmops-api -- touch /tmp/not-ready
 #   kubectl exec deploy/llmops-api -- rm -f /tmp/not-ready
 NOT_READY_FILE = Path(os.getenv("NOT_READY_FILE", "/tmp/not-ready"))  # noqa: S108
+
+# ---- D7 演示旋钮③：CPU 压测端点 ---------------------------------------------
+# 供 HPA（水平自动扩缩）演示用：/work?seconds=0.2 在容器内空转 N 秒，把 CPU 打上去。
+# 这样压测就**不依赖外部负载发生器是否够力**，负载量完全可控、可复现。
+#
+# ⚠️ 默认**关闭**（ENABLE_LOAD_ENDPOINT 不为 "1" 时该路由返回 404）。
+#    一个「帮忙烧 CPU」的端点在生产里就是现成的 DoS 放大器 ——
+#    与 D5 的两个旋钮同理：演示能力必须默认关闭、显式开启。
+ENABLE_LOAD_ENDPOINT = os.getenv("ENABLE_LOAD_ENDPOINT", "0") == "1"
+
+# /work 单次最长空转秒数上限：防止误用（如 seconds=99999）把节点拖垮
+MAX_BURN_SECONDS = 5.0
 
 # 进程启动时刻，用于 /ready 报告「已运行多久」
 _STARTED_AT = time.time()
@@ -104,6 +120,39 @@ def ready():
     }
 
 
+@app.get("/work", tags=["demo"])
+def work(seconds: float = 0.2):
+    """CPU 压测端点（**默认关闭**，见 ENABLE_LOAD_ENDPOINT）。
+
+    在容器内空转 `seconds` 秒纯 Python 计算，用来把该 Pod 的 CPU 使用率推高，
+    从而让 HPA 观察到「实际利用率 > 目标利用率」并触发扩容。
+
+    与 /health、/ready 的关系：这两个探针端点几乎不吃 CPU，
+    所以**光靠它们压不出 HPA**（探针请求太轻，利用率涨不到阈值）。
+    这正是要单独造一个可控 CPU 负载的原因。
+
+    ⚠️ 空转用的是 `time.perf_counter()` 而不是 `time.time()` ——
+    后者会受系统时钟调整影响，压测时长会飘。
+    """
+    if not ENABLE_LOAD_ENDPOINT:
+        # 用 404 而不是 403：不暴露「这里本来有个端点」的信息
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    burn = max(0.0, min(seconds, MAX_BURN_SECONDS))
+    deadline = time.perf_counter() + burn
+    spins = 0
+    while time.perf_counter() < deadline:
+        spins += 1
+
+    return {
+        "burned_seconds": burn,
+        "spins": spins,
+        "requested_seconds": seconds,
+        "clamped": seconds != burn,
+        "pod": os.getenv("HOSTNAME", "unknown"),
+    }
+
+
 @app.get("/", tags=["meta"])
 def root() -> dict:
     """给浏览者的门面信息，顺带自证「容器内跑的是非 root 用户」。"""
@@ -113,5 +162,6 @@ def root() -> dict:
         "python": sys.version.split()[0],
         "uid": os.getuid() if hasattr(os, "getuid") else None,
         "user": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
+        "load_endpoint": "enabled" if ENABLE_LOAD_ENDPOINT else "disabled",
         "docs": "/docs",
     }

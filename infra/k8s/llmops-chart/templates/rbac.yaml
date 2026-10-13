@@ -1,0 +1,56 @@
+{{- if .Values.rbac.create }}
+{{/*
+  RBAC · 最小权限（W2 D7）
+
+  为什么规则写在这里而不是 values.yaml：
+    这条 Role 要用 {{ include "llmops-chart.configMapName" . }} 拿到**本 Release**
+    的 ConfigMap 名（dev / prod 各一份，靠 Release 名隔离）。
+    values 文件是纯 YAML，Helm **不会**渲染其中的 {{ }} 语法 ——
+    写在那里会被当成普通字符串原样塞进 Role，静默失效。所以规则只能写在模板里。
+
+  ⚠️ 为什么用 Role 而不是 ClusterRole：
+    Role 的作用域 = 它所在的命名空间。用 ClusterRole 会把权限扩散到整个集群，
+    而本应用只需要读自己命名空间里的东西。
+*/}}
+{{- $name := default (include "llmops-chart.fullname" .) .Values.rbac.roleName }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "llmops-chart.labels" . | nindent 4 }}
+rules:
+  # ① 只读「自己那一个」ConfigMap —— resourceNames 把范围收窄到单个对象
+  #    ⚠️ 最常被写错的 RBAC 陷阱：resourceNames **只对 get / update / patch / delete 生效**。
+  #       一旦这条规则里加上 list 或 watch，resourceNames 会被**静默忽略**，
+  #       规则退化成「能读本命名空间所有 ConfigMap」—— 看着更严，实际更松。
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+    resourceNames:
+      - {{ include "llmops-chart.configMapName" . | quote }}
+  # ② 只读本命名空间的 Pod（读自身状态用）
+  #    这条**不能**用 resourceNames 收窄：带了 list 就不生效（见上）。
+  #    想收窄到单个 Pod 只能去掉 list，只留 get + resourceNames。
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # ③ 故意**不给**的权限（演示时用 auth can-i 证明它们为 false）：
+  #    secrets（读写都不给）/ pods/delete / deployments / pods/exec
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "llmops-chart.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  # 只绑给本 Chart 建的那个 ServiceAccount（而不是整个命名空间的所有 SA）
+  - kind: ServiceAccount
+    name: {{ include "llmops-chart.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
