@@ -59,6 +59,8 @@ except ValueError:
 # ---------------------------------------------------------------------------
 # 格式：模型名（小写，做子串匹配）→ (输入单价, 输出单价)
 _PRICING: dict[str, tuple[float, float]] = {
+    # freellmapi 网关的 auto 路由（转发到后端某模型）—— 无公开牌价，按中档模型估
+    "auto": (0.30, 1.20),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
     "gpt-4.1-mini": (0.40, 1.60),
@@ -265,11 +267,27 @@ def _finalize_langfuse(generation, model: str, rec: dict) -> None:
 
     ⚠️ v3 里 `end()` **不接受** output/usage_details 这些字段了 ——
        要么在创建时传，要么先 `update()` 再 `end()`。这里用后者（usage 要到流末才知道）。
+
+    ⚠️ 成本的两条路径（实测踩坑）：
+       · 本地能算（模型在 _PRICING 表里）→ 上报 cost_details，面板直接用我们的估算值。
+       · 本地算不出（模型不在表里）→ **完全不传 cost_details**（连空 map 都不传），
+         把定价权交给 Langfuse 服务端的 Models 目录（Project Settings → Models）。
+         若传了空 `{}`，Langfuse 会认为「成本已提供且为 0」，从而**跳过目录匹配** ——
+         这正是「面板 cost 恒为 0」的根因。
     """
     usage = rec.get("usage") or {}
     cost = estimate_cost(model, usage)
     prompt_tokens = usage.get("prompt_tokens")
     completion_tokens = usage.get("completion_tokens")
+
+    # 只有三个价都算出来才上报；否则整条 cost_details 不传，让 Langfuse 目录兜底
+    kwargs: dict = {}
+    if cost.get("total") is not None:
+        kwargs["cost_details"] = {
+            "input": cost["input"],
+            "output": cost["output"],
+            "total": cost["total"],
+        }
     try:
         generation.update(
             output=rec.get("content"),
@@ -278,9 +296,9 @@ def _finalize_langfuse(generation, model: str, rec: dict) -> None:
                 "output": completion_tokens,
                 "total": usage.get("total_tokens"),
             },
-            cost_details={k: v for k, v in cost.items() if k != "currency" and v is not None} or None,
             level="ERROR" if rec.get("error") else "DEFAULT",
             status_message=rec.get("error") or None,
+            **kwargs,
         )
     except Exception:  # noqa: BLE001
         log.debug("generation.update() 失败", exc_info=True)
