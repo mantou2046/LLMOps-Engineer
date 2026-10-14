@@ -102,6 +102,18 @@ def is_placeholder(value: str) -> bool:
         return True
     if "${" in v or "{{" in v or "<" in v:      # 未展开的模板标记
         return True
+    # 函数调用 / 表达式形态：值里出现 `(` 说明这是**参数传递或取值表达式**，
+    # 不是字面量凭据。背景（2026-10-14 · W2 D8）：
+    #   写 /chat 时出现 api_key=os.getenv(...) 与 max_tokens=req.max_tokens 被误报 ——
+    #   它们是把值往下传，本身不含秘密。真实泄露一定是**字面量**（一串具体随机字符），
+    #   不会长成 `f(x)` 这样，所以这条放宽不会放过任何真凭据。
+    # ⚠️ 只判左括号：KV 正则会按引号截断，`os.getenv(f"...")` 命中到的是 `os.getenv(`
+    if "(" in v:
+        return True
+    # 属性访问 / 下标形态：值形如 req.max_tokens、tier.api_key —— 这是**取值表达式**，
+    # 指向别处的变量，不是字面量凭据。同上：真凭据不会长成 `a.b`。
+    if re.fullmatch(r"[A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+", v):
+        return True
     return any(rx.search(v) for rx in PLACEHOLDER_RX)
 
 

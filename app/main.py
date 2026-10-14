@@ -1,7 +1,11 @@
 """LLMOps 作品集 · API 服务层（最小可运行骨架）
 
 W1 D2 阶段目标：先让「容器化这件事」跑通 —— 一个能被构建、能起、能被探活的
-最小服务。真正的 LLM 调用、结构化输出、重试与流式在 W2 补齐。
+最小服务。
+
+W2 D8：LLM 调用 / 重试 / 指数退避 / 超时 / 流式 / 结构化输出已补齐，
+实现拆到 app/llm.py（策略层），本文件只留 /chat 的协议层（校验 / 组包 / 错误翻译）。
+拆法理由见 app/llm.py 文件头。
 
 设计上刻意保持极简：
   · 只依赖 fastapi / pydantic，不引入任何 LLM SDK → 镜像小、启动快
@@ -18,20 +22,34 @@ W1 D5 补充（三种探针的演示能力）：
 W2 D7 补充（HPA 扩缩容的演示能力）：
   · ENABLE_LOAD_ENDPOINT —— 开启后 /work?seconds=N 在容器内空转 N 秒烧 CPU。
     同样**默认关闭**：探针端点太轻，压不出 HPA，需要一个可控的 CPU 负载源。
+
+W2 D8 补充（服务化）：
+  · /chat —— 调上游模型（OpenAI 兼容协议），支持流式（SSE）与结构化输出（JSON mode）
+  · 重试 / 指数退避 / 超时 三项策略在 app/llm.py；本文件只管协议与错误翻译
+  · /healthz、/readyz —— K8s 惯例的别名入口（原 /health、/ready 保留不动）
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Iterator, Literal
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field
 
-APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
+import llm
+from llm import ChatStream, UpstreamError, sse
+
+log = logging.getLogger("llmops.api")
+
+APP_VERSION = os.getenv("APP_VERSION", "0.4.0")
 
 # ---- D5 演示旋钮①：模拟慢启动 ----------------------------------------------
 # 单位秒，默认 0 = 行为与之前完全一致。
@@ -66,6 +84,23 @@ _STARTED_AT = time.time()
 # 这样「进程存在但端口没开」的窗口才是真实的慢启动形态。
 if STARTUP_DELAY_SECONDS > 0:
     time.sleep(STARTUP_DELAY_SECONDS)
+
+# 启动即报告上游模式：/chat 是 mock 还是真实上游，是排查「为什么回复像演示」的第一现场。
+# 不放日志而靠读代码判断，排障时多绕一圈。
+log.info(
+    "LLM 上游模式 = %s%s",
+    llm.LLM_MODE,
+    "（本地模拟，不调用真实模型；上生产前切 openai）" if llm.LLM_MODE == "mock" else "（直连真实上游）",
+)
+if llm.LLM_MODE == "openai":
+    for _name, _tier in llm.TIERS.items():
+        log.info(
+            "  档位 %s：model=%s base_url=%s api_key=%s",
+            _name,
+            _tier.model or "未设",
+            _tier.base_url or "默认",
+            "已配置" if _tier.api_key else "未配置",
+        )
 
 app = FastAPI(
     title="LLMOps Engineer 作品集 API",
@@ -115,9 +150,22 @@ def ready():
         )
     return {
         "status": "ready",
-        "checks": {"database": "not-wired-yet"},
+        "checks": {
+            "database": "not-wired-yet",
+            # W2 D8：/chat 的上游模式与配置完整性。只报告、不据此摘流量 ——
+            # 「配置没填对」该由告警发现，不是让 Pod 退出 Endpoints 把故障放大。
+            "chat": {"mode": llm.LLM_MODE, "configured": llm.chat_configured()},
+        },
         "uptime_seconds": round(time.time() - _STARTED_AT, 1),
     }
+
+
+# ---- K8s 惯例的 z 后缀入口 -------------------------------------------------
+# /health、/ready 仍在用（Dockerfile HEALTHCHECK、chart 三探针的 httpGet.path），
+# 路径不能改；/healthz、/readyz 是 K8s 生态更常见的写法，作为别名补上 ——
+# 一份实现、两套入口，add_api_route 不复制逻辑。
+app.add_api_route("/healthz", health, methods=["GET"], tags=["ops"])
+app.add_api_route("/readyz", ready, methods=["GET"], tags=["ops"])
 
 
 @app.get("/work", tags=["demo"])
@@ -153,6 +201,156 @@ def work(seconds: float = 0.2):
     }
 
 
+# ============================================================================
+# W2 D8 · /chat：调上游模型（重试 / 指数退避 / 超时 / 流式 / 结构化输出）
+# ============================================================================
+# 策略实现全在 app/llm.py，这里只做协议层：校验 → 调用 → 组包（JSON 或 SSE）。
+# 拆开的原因：llm.py 的变更是「策略问题」，本文件的变更是「接口问题」，混在一起
+# 会互相拖累。
+
+
+class Message(BaseModel):
+    """一条对话消息。字段名与 OpenAI chat 协议对齐，不自定义方言。"""
+
+    role: Literal["system", "user", "assistant"]
+    content: str = Field(..., min_length=1, description="消息正文")
+
+
+class ChatRequest(BaseModel):
+    """POST /chat 请求体 —— 四个业务字段正好对上 W2 D8 的四项「做」。"""
+
+    messages: list[Message] = Field(..., min_length=1, description="对话历史，至少一条")
+    stream: bool = Field(default=False, description="true → SSE 流式响应；false → 一次性 JSON")
+    structured: bool = Field(default=False, description="true → 要求上游输出单个 JSON 对象（response_format=json_object）")
+    model: Literal["primary", "cheap"] = Field(default="primary", description="模型档位：primary=主模型，cheap=便宜分流模型")
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    max_tokens: int | None = Field(default=1024, ge=1, le=8192)
+
+
+def _attempt_headers(attempts: int, retries: int) -> dict[str, str]:
+    """重试次数写进响应头：curl -i 一眼看到「自动重试过」，不必解析 body。
+    响应体里同样带 attempts/retries —— 双通道可查，别只在一边。"""
+    return {"X-Upstream-Attempts": str(attempts), "X-Upstream-Retries": str(retries)}
+
+
+def _chat_502(exc: UpstreamError) -> HTTPException:
+    """上游故障统一转 502 —— 语义是「我们没问题，上游有问题」，
+    与 500「我们自己的问题」区分开，监控告警该分流处理。"""
+    return HTTPException(
+        status_code=502,
+        detail={"message": exc.message, "upstream": exc.upstream, "status": exc.status},
+    )
+
+
+@app.post("/chat", tags=["llm"])
+def chat(req: ChatRequest) -> Response:
+    """调上游模型。策略在 app/llm.py；这里只做协议与错误翻译。"""
+    log.info(
+        "POST /chat stream=%s structured=%s tier=%s messages=%d",
+        req.stream, req.structured, req.model, len(req.messages),
+    )
+    payload = [m.model_dump() for m in req.messages]
+
+    if req.stream:
+        try:
+            stream = llm.open_stream(
+                messages=payload,
+                tier_name=req.model,
+                structured=req.structured,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+            )
+        except UpstreamError as exc:
+            raise _chat_502(exc) from exc
+        return StreamingResponse(
+            _sse_body(stream, structured=req.structured),
+            media_type="text/event-stream",
+            # X-Accel-Buffering=no：反向代理层别缓存 SSE（否则 delta 被攒成一坨才到客户端）
+            headers={
+                **_attempt_headers(stream.attempts, stream.retries),
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    try:
+        out = llm.chat(
+            messages=payload,
+            tier_name=req.model,
+            structured=req.structured,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
+        )
+    except UpstreamError as exc:
+        raise _chat_502(exc) from exc
+
+    return JSONResponse(
+        content={
+            "request_id": out.request_id,
+            "model": out.model,
+            "upstream_mode": out.mode,
+            "structured": out.structured,
+            "content": out.content,
+            "usage": out.usage,
+            "finish_reason": out.finish_reason,
+            "attempts": out.attempts,
+            "retries": out.retries,
+            "latency_ms": round(out.latency_ms, 1),
+            "parse_failed": out.parse_failed,
+        },
+        headers=_attempt_headers(out.attempts, out.retries),
+    )
+
+
+def _sse_body(stream: ChatStream, *, structured: bool) -> Iterator[str]:
+    """把 delta 流包成 SSE。四类事件：meta（首帧，带重试统计）/ delta / done / error。
+
+    ⚠️ 流中途的故障只发 error 事件，不悄悄重试 —— 重试只覆盖首 token 之前，
+    理由见 app/llm.py 文件头取舍 2。
+    """
+    yield sse(
+        "meta",
+        {
+            "request_id": stream.request_id,
+            "model": stream.model,
+            "upstream_mode": stream.mode,
+            "attempts": stream.attempts,
+            "retries": stream.retries,
+        },
+    )
+    parts: list[str] = []
+    try:
+        for delta in stream.deltas:
+            parts.append(delta)
+            yield sse("delta", {"delta": delta})
+    except UpstreamError as exc:
+        yield sse("error", {"message": exc.message, "upstream": exc.upstream, "status": exc.status})
+        return
+    yield sse("done", _done_payload(stream, parts, structured))
+
+
+def _done_payload(stream: ChatStream, parts: list[str], structured: bool) -> dict[str, Any]:
+    """流收尾帧。结构化模式下把拼回的全文字符串再 parse 一次 —— 客户端不该自己拼 JSON。"""
+    content = "".join(parts)
+    payload: dict[str, Any] = {
+        "usage": stream.usage,
+        "attempts": stream.attempts,
+        "retries": stream.retries,
+        "finish_reason": stream.finish_reason,
+    }
+    if structured:
+        payload["structured"] = True
+        try:
+            payload["content"] = json.loads(content)
+        except (TypeError, ValueError):
+            # 模型没守 JSON 约定：保留原文并标 parse_failed，让调用方看到现场
+            payload["content"] = content
+            payload["parse_failed"] = True
+    else:
+        payload["content"] = content
+    return payload
+
+
 @app.get("/", tags=["meta"])
 def root() -> dict:
     """给浏览者的门面信息，顺带自证「容器内跑的是非 root 用户」。"""
@@ -163,5 +361,6 @@ def root() -> dict:
         "uid": os.getuid() if hasattr(os, "getuid") else None,
         "user": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
         "load_endpoint": "enabled" if ENABLE_LOAD_ENDPOINT else "disabled",
+        "llm_mode": llm.LLM_MODE,
         "docs": "/docs",
     }

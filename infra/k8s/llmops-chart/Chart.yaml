@@ -17,7 +17,8 @@ type: application
 # Versions are expected to follow Semantic Versioning (https://semver.org/)
 #
 # 0.2.0（2026-10-13 · W2 D7）：新增 templates/rbac.yaml（Role + RoleBinding，最小权限）
-version: 0.2.0
+# 0.3.0（2026-10-14 · W2 D8）：env/ConfigMap/Secret 增加 /chat 上游配置（LLM_MODE 等）
+version: 0.3.0
 
 # This is the version number of the application being deployed. This version number should be
 # incremented each time you make changes to the application. Versions are not expected to
@@ -26,4 +27,5 @@ version: 0.2.0
 #
 # ⚠️ 与 values.yaml 的 image.tag 联动：image.tag 为空时回落到这里的 appVersion。
 #    0.3.0（W2 D7）：新增 /work CPU 压测端点（默认关闭，见 ENABLE_LOAD_ENDPOINT）。
-appVersion: "0.3.0"
+#    0.4.0（W2 D8）：新增 /chat（流式 + 结构化输出 + 重试退避超时）、/healthz、/readyz。
+appVersion: "0.4.0"

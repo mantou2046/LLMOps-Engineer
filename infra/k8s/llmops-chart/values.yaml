@@ -99,11 +99,35 @@ containerPort: 8000
 # 应用环境变量（键值对，会渲染成容器 env）
 # STARTUP_DELAY_SECONDS 是 W1 D5 留下的「慢启动演示旋钮」：
 #   默认 "0" = 不延迟；演示 startupProbe 时用 --set 覆盖成 "20"。
+# LLM_* 系列是 W2 D8 的 /chat 上游配置：
+#   LLM_MODE=mock 时不调真实模型，本地/集群内可直接验收重试与流式；
+#   上生产切 openai，并在 Secret 里补 LLM_PRIMARY_API_KEY。
 env:
   - name: APP_VERSION
-    value: "0.3.0"
+    value: "0.4.0"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
+  # W2 D8 · 上游模式：mock（默认，不调真实模型） / openai（直连真实上游）
+  - name: LLM_MODE
+    value: "mock"
+  # 重试策略：共 3 次尝试（含首发），指数退避 1s→2s→4s，封顶 8s
+  - name: LLM_MAX_ATTEMPTS
+    value: "3"
+  - name: LLM_BACKOFF_MIN
+    value: "1"
+  - name: LLM_BACKOFF_MAX
+    value: "8"
+  # 单次上游请求整体超时（秒）
+  - name: LLM_TIMEOUT_SECONDS
+    value: "60"
+  # mock 故障注入：前 N 次调用返回 500，用于验收「自动重试」。0 = 不注入
+  - name: MOCK_FAIL_N_TIMES
+    value: "0"
+  # mock 流式节奏（毫秒）：首 token 延迟 / 相邻 chunk 间隔
+  - name: MOCK_FIRST_TOKEN_MS
+    value: "200"
+  - name: MOCK_CHUNK_DELAY_MS
+    value: "60"
 
 # =============================================================================
 # ConfigMap · 非敏感配置（来自 W1 的 config.yaml）
@@ -128,6 +152,13 @@ configMap:
     POSTGRES_USER: "llmops"
     LITELLM_BASE_URL: "http://litellm:4000"
     LITELLM_CACHE_ENABLED: "true"
+    # ---- W2 D8 · /chat 上游的「非敏感」配置 ----
+    # 模型名与 base_url 不是凭据，进 ConfigMap；api_key 走下方 secret 段。
+    # 留空 = mock 模式用不到；切 LLM_MODE=openai 时必填。
+    LLM_PRIMARY_MODEL: ""
+    LLM_PRIMARY_BASE_URL: ""
+    LLM_CHEAP_MODEL: ""
+    LLM_CHEAP_BASE_URL: ""
 
 # =============================================================================
 # Secret · 敏感信息
@@ -151,6 +182,7 @@ secret:
   data:
     POSTGRES_PASSWORD: ""
     LLM_PRIMARY_API_KEY: ""
+    LLM_CHEAP_API_KEY: ""
     LITELLM_MASTER_KEY: ""
   # 必填键清单：列在这里的键若值为空，则 helm install 阶段直接报错。
   # 空列表 = 不校验（本地纯演示用，Pod 起得来但可能连不上真库）。

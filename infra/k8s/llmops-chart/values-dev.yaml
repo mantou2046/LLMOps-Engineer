@@ -30,15 +30,33 @@ resources:
     cpu: 500m
     memory: 256Mi
 
-# ⚠️ 列表整体替换：三项都要写全
+# ⚠️ 列表整体替换：全部写全
 env:
   - name: APP_VERSION
-    value: "0.3.0-dev"
+    value: "0.4.0-dev"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
   # dev 打开 /work CPU 压测端点 —— HPA 扩缩容演示要有可控的 CPU 负载源
   - name: ENABLE_LOAD_ENDPOINT
     value: "1"
+  # W2 D8 · dev 用 mock 上游：本地演练不必申请真 key，重试/流式照样能验收
+  - name: LLM_MODE
+    value: "mock"
+  - name: LLM_MAX_ATTEMPTS
+    value: "3"
+  - name: LLM_BACKOFF_MIN
+    value: "1"
+  - name: LLM_BACKOFF_MAX
+    value: "8"
+  - name: LLM_TIMEOUT_SECONDS
+    value: "60"
+  # dev 默认不注入故障；验收重试时 helm upgrade --set env[...] 或临时改成 "2"
+  - name: MOCK_FAIL_N_TIMES
+    value: "0"
+  - name: MOCK_FIRST_TOKEN_MS
+    value: "200"
+  - name: MOCK_CHUNK_DELAY_MS
+    value: "60"
 
 # ConfigMap：dev 环境用 DEBUG 日志、明确标识 APP_ENV=dev
 configMap:

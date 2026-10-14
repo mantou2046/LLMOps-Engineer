@@ -30,15 +30,31 @@ resources:
     cpu: 300m
     memory: 384Mi
 
-# ⚠️ 列表整体替换：三项都要写全
+# ⚠️ 列表整体替换：全部写全
 env:
   - name: APP_VERSION
-    value: "0.3.0"
+    value: "0.4.0"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
   # prod **显式关闭** /work 压测端点 —— 这类"帮忙烧 CPU"的端点在真生产里
   # 就是现成的 DoS 放大器。dev 开、prod 关，正是"同一模板 + 不同 values"的用武之地。
   - name: ENABLE_LOAD_ENDPOINT
+    value: "0"
+  # W2 D8 · prod 切真实上游（需在 values-secret.yaml 里补 LLM_PRIMARY_API_KEY /
+  #   LLM_PRIMARY_MODEL / LLM_PRIMARY_BASE_URL）。mock 只属于本地演练。
+  - name: LLM_MODE
+    value: "openai"
+  # prod 重试更稳：4 次尝试、退避封顶 10s（外网上游抖动更常见）
+  - name: LLM_MAX_ATTEMPTS
+    value: "4"
+  - name: LLM_BACKOFF_MIN
+    value: "1"
+  - name: LLM_BACKOFF_MAX
+    value: "10"
+  - name: LLM_TIMEOUT_SECONDS
+    value: "60"
+  # prod 不做故障注入
+  - name: MOCK_FAIL_N_TIMES
     value: "0"
 
 # ConfigMap：prod 用 INFO 日志

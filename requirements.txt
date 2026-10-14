@@ -18,5 +18,7 @@ pydantic-settings>=2.6,<3.0
 python-dotenv>=1.0,<2.0
 httpx>=0.27,<1.0
 
-# ---- LLM 调用（W2 起接入，先占位）----
+# ---- LLM 调用（W2 D8 接入）----
 openai>=1.50,<2.0
+# 重试 / 指数退避 —— /chat 的失败重试策略（见 app/llm.py）
+tenacity>=9.0,<10.0

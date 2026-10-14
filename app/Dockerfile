@@ -108,7 +108,10 @@ ENV PATH="/opt/venv/bin:$PATH" \
 # 这里**不能再删一次** —— 那只会加一层「删除标记」，底层数据仍在，体积反而变大（见上方踩坑注释）。
 
 # 应用代码：精确 COPY，不用 COPY . .（配合 .dockerignore 双保险）
+# ⚠️ 新增模块必须在这里补一行 —— 精确 COPY 的代价就是「忘了加 = 容器里 import 失败」。
+#    W2 D8 新增 llm.py（LLM 调用 / 重试 / 流式策略），漏了就 ImagePullBackOff 之后 ModuleNotFoundError。
 COPY --chown=appuser:appuser app/main.py ./main.py
+COPY --chown=appuser:appuser app/llm.py ./llm.py
 
 # 切到非 root
 USER appuser
