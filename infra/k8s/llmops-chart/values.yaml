@@ -104,7 +104,7 @@ containerPort: 8000
 #   上生产切 openai，并在 Secret 里补 LLM_PRIMARY_API_KEY。
 env:
   - name: APP_VERSION
-    value: "0.4.0"
+    value: "0.5.0"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
   # W2 D8 · 上游模式：mock（默认，不调真实模型） / openai（直连真实上游）
@@ -128,6 +128,12 @@ env:
     value: "200"
   - name: MOCK_CHUNK_DELAY_MS
     value: "60"
+  # ---- W2 D9 · 观测开关 ----
+  # ⚠️ 默认 "off"：观测组件（Langfuse）的可靠性等级低于业务，
+  #    绝不能因为「碰巧集群里没部署 Langfuse」就让 /chat 挂掉。
+  #    要开就显式覆盖成 "langfuse"；集群内没有 Langfuse 时用 "log" 也能看到 trace 日志。
+  - name: OBSERVABILITY
+    value: "off"
 
 # =============================================================================
 # ConfigMap · 非敏感配置（来自 W1 的 config.yaml）
@@ -159,6 +165,13 @@ configMap:
     LLM_PRIMARY_BASE_URL: ""
     LLM_CHEAP_MODEL: ""
     LLM_CHEAP_BASE_URL: ""
+    # ---- W2 D9 · Langfuse 的「非敏感」配置 ----
+    # host 与采样率不是凭据，进 ConfigMap；两个 key 走 secret 段。
+    # 集群内 Langfuse 的服务名是 langfuse-web（见 infra/langfuse/compose.yml），
+    # 但 K8s 里另起一套时按实际 Service 名填。本地跑则指向宿主可访问地址。
+    LANGFUSE_HOST: "http://localhost:3000"
+    # 采样率 1.0 = 全量。⚠️ D11 压测时要调低（trace 会显著吃磁盘）。
+    LANGFUSE_SAMPLE_RATE: "1.0"
 
 # =============================================================================
 # Secret · 敏感信息
@@ -184,6 +197,11 @@ secret:
     LLM_PRIMARY_API_KEY: ""
     LLM_CHEAP_API_KEY: ""
     LITELLM_MASTER_KEY: ""
+    # ---- W2 D9 · Langfuse 凭据 ----
+    # 从 Langfuse 面板（http://localhost:3000 → 项目设置 → API Keys）取。
+    # 注意 LANGFUSE_PUBLIC_KEY 前缀是 pk-lf-，SECRET_KEY 是 sk-lf-。
+    LANGFUSE_PUBLIC_KEY: ""
+    LANGFUSE_SECRET_KEY: ""
   # 必填键清单：列在这里的键若值为空，则 helm install 阶段直接报错。
   # 空列表 = 不校验（本地纯演示用，Pod 起得来但可能连不上真库）。
   # 生产环境建议至少列上真正的凭据键，见 values-prod.yaml。

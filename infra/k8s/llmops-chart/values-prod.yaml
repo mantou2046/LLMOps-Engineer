@@ -19,7 +19,7 @@ replicaCount: 2
 image:
   repository: llmops-api
   pullPolicy: IfNotPresent
-  tag: "0.3.0"
+  tag: "0.5.0"
 
 # 资源收紧：贴近生产配额
 resources:
@@ -33,7 +33,7 @@ resources:
 # ⚠️ 列表整体替换：全部写全
 env:
   - name: APP_VERSION
-    value: "0.4.0"
+    value: "0.5.0"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
   # prod **显式关闭** /work 压测端点 —— 这类"帮忙烧 CPU"的端点在真生产里
@@ -56,6 +56,9 @@ env:
   # prod 不做故障注入
   - name: MOCK_FAIL_N_TIMES
     value: "0"
+  # W2 D9 · prod 真的上报 Langfuse（需要 Secret 里的两把 key，见下方 requiredKeys）。
+  - name: OBSERVABILITY
+    value: "langfuse"
 
 # ConfigMap：prod 用 INFO 日志
 configMap:
@@ -69,14 +72,22 @@ configMap:
     POSTGRES_USER: "llmops"
     LITELLM_BASE_URL: "http://litellm:4000"
     LITELLM_CACHE_ENABLED: "true"
+    LANGFUSE_HOST: "http://localhost:3000"
+    # ⚠️ prod 采样率先留 1.0（全量）便于演示；D11 压测时必须调低 ——
+    #    trace 落盘量会随 QPS 线性增长，是全链路里最容易把磁盘吃满的一环。
+    LANGFUSE_SAMPLE_RATE: "1.0"
 
 # Secret：生产强制要求真凭据（装的时候必须 -f values-secret.yaml）
 # ⚠️ 只列"必须非空"的键 —— LLM_PRIMARY_API_KEY / LITELLM_MASTER_KEY 在本地演练里
 #    本来就走内网 LiteLLM，不需要真上游 key，所以不列入必填。
+#    W2 D9：prod 开了 OBSERVABILITY=langfuse，两把 key 就成了真必填 ——
+#    缺了虽然不会让 Pod 起不来（观测失败仅降级），但面板上会一条 trace 都没有。
 secret:
   enabled: true
   requiredKeys:
     - POSTGRES_PASSWORD
+    - LANGFUSE_PUBLIC_KEY
+    - LANGFUSE_SECRET_KEY
 
 # 探针：prod 收紧，尽快发现问题
 livenessProbe:

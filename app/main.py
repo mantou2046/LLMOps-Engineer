@@ -36,6 +36,7 @@ import logging
 import os
 import sys
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Literal
@@ -45,11 +46,12 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import llm
+import observability
 from llm import ChatStream, UpstreamError, sse
 
 log = logging.getLogger("llmops.api")
 
-APP_VERSION = os.getenv("APP_VERSION", "0.4.0")
+APP_VERSION = os.getenv("APP_VERSION", "0.5.0")
 
 # ---- D5 演示旋钮①：模拟慢启动 ----------------------------------------------
 # 单位秒，默认 0 = 行为与之前完全一致。
@@ -102,10 +104,23 @@ if llm.LLM_MODE == "openai":
             "已配置" if _tier.api_key else "未配置",
         )
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """进程级生命周期钩子。
+
+    W2 D9：关闭前把 Langfuse 队列里还没发出去的 trace flush 掉。
+    ⚠️ 不这样做，最后一批 trace 会随进程消失 ——「明明调了接口面板上却没有」
+       十有八九就是这个原因。flush 失败绝不上抛：观测不该让优雅退出失败。
+    """
+    yield
+    observability.flush()
+
+
 app = FastAPI(
     title="LLMOps Engineer 作品集 API",
     description="资金/财务制度知识库智能问答与评估平台 · 服务层",
     version=APP_VERSION,
+    lifespan=_lifespan,
 )
 
 
@@ -155,6 +170,10 @@ def ready():
             # W2 D8：/chat 的上游模式与配置完整性。只报告、不据此摘流量 ——
             # 「配置没填对」该由告警发现，不是让 Pod 退出 Endpoints 把故障放大。
             "chat": {"mode": llm.LLM_MODE, "configured": llm.chat_configured()},
+            # W2 D9：观测状态。同样只报告不摘流量 ——
+            # ⚠️ Langfuse 挂了不该让本 Pod 退出 Endpoints：观测的可靠性等级低于业务，
+            #    把它写进 readiness 门槛，等于把「面板看不了」放大成「服务不可用」。
+            "observability": observability.status(),
         },
         "uptime_seconds": round(time.time() - _STARTED_AT, 1),
     }

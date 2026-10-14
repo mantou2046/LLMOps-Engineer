@@ -19,7 +19,7 @@ replicaCount: 1
 image:
   repository: llmops-api
   pullPolicy: IfNotPresent
-  tag: "0.3.0"
+  tag: "0.5.0"
 
 # 资源给宽松些，方便本地随便压测
 resources:
@@ -33,7 +33,7 @@ resources:
 # ⚠️ 列表整体替换：全部写全
 env:
   - name: APP_VERSION
-    value: "0.4.0-dev"
+    value: "0.5.0-dev"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
   # dev 打开 /work CPU 压测端点 —— HPA 扩缩容演示要有可控的 CPU 负载源
@@ -57,6 +57,11 @@ env:
     value: "200"
   - name: MOCK_CHUNK_DELAY_MS
     value: "60"
+  # W2 D9 · dev 用 "log" 档：集群里通常没部署 Langfuse，
+  #   但本地日志里照样能看到每次调用的 trace 一行摘要（token / 成本 / 耗时）。
+  #   要在 dev 真的上报，就改成 "langfuse" 并补 LANGFUSE_* 两把 key。
+  - name: OBSERVABILITY
+    value: "log"
 
 # ConfigMap：dev 环境用 DEBUG 日志、明确标识 APP_ENV=dev
 configMap:
@@ -70,6 +75,9 @@ configMap:
     POSTGRES_USER: "llmops"
     LITELLM_BASE_URL: "http://litellm:4000"
     LITELLM_CACHE_ENABLED: "true"
+    # W2 D9 · ConfigMap 也是整体替换 map（与 env 列表同理），要写全
+    LANGFUSE_HOST: "http://localhost:3000"
+    LANGFUSE_SAMPLE_RATE: "1.0"
 
 # 探针：dev 放宽一些，避免本地资源紧张时误杀
 readinessProbe:

@@ -77,6 +77,17 @@ PLACEHOLDER_RX = [
     re.compile(r"^(?i:user|username|pass|pwd|host|localhost|dbname|database|port|dsn)$"),
     # 形如 user:password@（占位用户名 + 占位口令）
     re.compile(r"(?i)^[A-Za-z_][\w.]*:[A-Za-z_][\w.]*@?$"),
+    # 省略号在**尾部**（如 sk-lf-... / pk-lf-…）：文档里「前缀 + ...」表示「此处替换成你的 key」。
+    # 上面那条只匹配「整串就是省略号」（^\.\.\.$），尾部省略号要单独放行。
+    re.compile(r"^(?:[^\s]{1,12})?(?:\.\.\.|…)$"),
+    # 全大写标识符（可含数字/下划线）—— 这是**变量名 / 常量名**，不是字面量凭据。
+    # 背景（2026-10-14 · W2 D9）：secret_key=LANGFUSE_SECRET_KEY 被误报 ——
+    #   真凭据是随机串（含小写、常含符号），不会长成一整串大写。
+    re.compile(r"^[A-Z][A-Z0-9_]{2,}$"),
+    # 数据库默认用户名 / 口令（compose 内网服务间的默认值，非外泄凭据）。
+    # 背景（2026-10-14 · W2 D9）：${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/...}
+    #   这是官方 compose 的默认兜底串，user=pass=postgres。
+    re.compile(r"^(?i:postgres|clickhouse|redis|minio|admin|root|guest)$"),
 ]
 
 # 「键名语义上就不是凭据值」的键 —— 这类键的值是**引用 / 标识符**，不是秘密。

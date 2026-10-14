@@ -110,8 +110,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
 # 应用代码：精确 COPY，不用 COPY . .（配合 .dockerignore 双保险）
 # ⚠️ 新增模块必须在这里补一行 —— 精确 COPY 的代价就是「忘了加 = 容器里 import 失败」。
 #    W2 D8 新增 llm.py（LLM 调用 / 重试 / 流式策略），漏了就 ImagePullBackOff 之后 ModuleNotFoundError。
+#    W2 D9 新增 observability.py，同上 —— 而且它失败得更隐蔽：
+#    llm.py / main.py 都在 import 期引用它，缺了会**启动即崩**（不是请求期才崩）。
 COPY --chown=appuser:appuser app/main.py ./main.py
 COPY --chown=appuser:appuser app/llm.py ./llm.py
+COPY --chown=appuser:appuser app/observability.py ./observability.py
 
 # 切到非 root
 USER appuser

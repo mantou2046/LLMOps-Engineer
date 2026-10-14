@@ -22,3 +22,12 @@ httpx>=0.27,<1.0
 openai>=1.50,<2.0
 # 重试 / 指数退避 —— /chat 的失败重试策略（见 app/llm.py）
 tenacity>=9.0,<10.0
+
+# ---- 观测（W2 D9 接入）----
+# Langfuse SDK：把每次 /chat 打成 trace 上报自托管 Langfuse。
+# ⚠️ 装是必需的、开是可选的 —— OBSERVABILITY=off（默认）时本模块**不导入**，
+#    所以「装了但没开」不产生任何运行时开销（import 开销在首次真正启用时才付）。
+# ⚠️ 体积影响：SDK 会带入 backoff / wrapt 等若干纯 Python 包，镜像会涨几 MB。
+#    评估过「放进 dev 依赖以免污染生产镜像」，否掉的理由：K8s 的 prod 环境**也要开观测**，
+#    真按环境拆依赖，就得维护两套 requirements，收益（几 MB）不抵维护成本。
+langfuse>=2.50,<4.0

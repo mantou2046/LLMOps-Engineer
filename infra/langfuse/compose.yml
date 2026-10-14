@@ -1,0 +1,234 @@
+# =============================================================================
+# Langfuse 自托管（观测层）—— W2 D9 产出物
+# -----------------------------------------------------------------------------
+# 为什么单独一个 compose 文件，而不是并进 infra/compose.yml：
+#
+#   1) 变量名撞车（比端口冲突更隐蔽的坑）
+#      官方 Langfuse compose 用的变量名是 POSTGRES_USER / POSTGRES_PASSWORD /
+#      POSTGRES_DB / REDIS_AUTH / CLICKHOUSE_PASSWORD …
+#      而 infra/compose.yml（项目库）用的是**同名**变量，值都从仓库根的 .env 读。
+#      两者合并在一个 compose 文件里，`${POSTGRES_PASSWORD}` 会**同时**代入项目库口令与
+#      Langfuse 库口令 —— 想给 Langfuse 换个库密码就得连项目库一起改。
+#      拆开后各有各的 env_file，物理隔离，互不干扰。
+#
+#   2) 生命周期不同
+#      项目库是常驻基础设施（W6 的 RAG 还要用）；Langfuse 是观测组件，
+#      可能频繁 `up` / `down` 调试。分开后 down 一个不影响另一个。
+#
+#   3) 端口冲突（计划卡点）
+#      官方 compose 里 postgres 映射 127.0.0.1:5432，与项目库（infra/compose.yml）
+#      的 5432 硬冲突。本文件把它挪到 **5433**（见下方 postgres 服务注释）。
+#
+# 用法（在仓库根执行）：
+#   cp infra/langfuse/.env.example infra/langfuse/.env   # 生成密钥并填入
+#   docker compose -f infra/langfuse/compose.yml --env-file infra/langfuse/.env up -d
+#   docker compose -f infra/langfuse/compose.yml ps
+#   docker compose -f infra/langfuse/compose.yml down      # 数据保留在命名卷
+#
+# ⚠️ 首次启动后要手动注册账号并建 project，再把 project 的 public/secret key
+#    填回仓库根 .env 的 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY。
+#    （想免手动可配 LANGFUSE_INIT_* 做 headless 初始化，本文件默认关闭。）
+#
+# 资源提示：本机可用内存约 18GB。这套 6 服务约吃 2–3GB，与项目库共存没问题，
+#          但两套一起跑前先确认没有别的重负载。
+# =============================================================================
+
+name: llmops-langfuse
+
+services:
+  # ---------------------------------------------------------------------------
+  # langfuse-worker：异步任务（事件入库、评估排队等）
+  # 只在容器网络内可见（127.0.0.1:3030），不需要浏览器直连
+  # ---------------------------------------------------------------------------
+  langfuse-worker:
+    image: docker.langfuse.com/langfuse/langfuse-worker:4
+    restart: always
+    depends_on: &langfuse-depends-on
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:3030:3030
+    environment: &langfuse-worker-env
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/postgres}
+      SALT: ${SALT:?SALT is required - see infra/langfuse/.env.example}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required - see infra/langfuse/.env.example}
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-false}
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: ${LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES:-false}
+      CLICKHOUSE_MIGRATION_URL: ${CLICKHOUSE_MIGRATION_URL:-clickhouse://clickhouse:9000}
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}
+      CLICKHOUSE_CLUSTER_ENABLED: ${CLICKHOUSE_CLUSTER_ENABLED:-false}
+      CLICKHOUSE_CLUSTER_NAME: ${CLICKHOUSE_CLUSTER_NAME:-default}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE:-true}
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: ${LANGFUSE_S3_EVENT_UPLOAD_PREFIX:-events/}
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_MEDIA_UPLOAD_BUCKET:-langfuse}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_MEDIA_UPLOAD_REGION:-auto}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE:-true}
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: ${LANGFUSE_S3_MEDIA_UPLOAD_PREFIX:-media/}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_AUTH: ${REDIS_AUTH:?REDIS_AUTH is required}
+      REDIS_TLS_ENABLED: ${REDIS_TLS_ENABLED:-false}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
+      SMTP_CONNECTION_URL: ${SMTP_CONNECTION_URL:-}
+
+  # ---------------------------------------------------------------------------
+  # langfuse-web：UI + API（浏览器访问入口）
+  # 3000 是官方默认，也与仓库根 .env 的 LANGFUSE_HOST=http://localhost:3000 对齐
+  # ---------------------------------------------------------------------------
+  langfuse-web:
+    image: docker.langfuse.com/langfuse/langfuse:4
+    restart: always
+    depends_on: *langfuse-depends-on
+    ports:
+      - 3000:3000
+    environment:
+      <<: *langfuse-worker-env
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required - see infra/langfuse/.env.example}
+      # 媒体上传走浏览器直连 → 必须用宿主可达的地址（不是容器内网名）
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT_BROWSER:-http://localhost:9090}
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT:-http://minio:9000}
+      # headless 初始化（可选）：一次启动就把组织/项目/API key/首个用户建好，
+      # 免去手动 Sign up。默认留空 = 走 UI 手动注册。
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # ClickHouse：trace / observation 的存储引擎（v3 起从 Postgres 迁到 ClickHouse）
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:25.12
+    restart: always
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    ports:
+      - 127.0.0.1:8123:8123
+      - 127.0.0.1:9000:9000
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # MinIO：S3 兼容对象存储（事件与媒体存档）
+  # ---------------------------------------------------------------------------
+  minio:
+    image: cgr.dev/chainguard/minio
+    restart: always
+    entrypoint: sh
+    # 起服务前先建好 'langfuse' bucket
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    ports:
+      - 9090:9000
+      - 127.0.0.1:9091:9001
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  # ---------------------------------------------------------------------------
+  # Redis：任务队列（BullMQ）与缓存
+  # ⚠️ 端口挪到 6380 —— 避免与将来别处起的 Redis 抢默认 6379
+  # ---------------------------------------------------------------------------
+  redis:
+    image: docker.io/redis:7
+    restart: always
+    command: >
+      --requirepass ${REDIS_AUTH:?REDIS_AUTH is required}
+      --maxmemory-policy noeviction
+    ports:
+      - 127.0.0.1:6380:6379
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_AUTH}", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Postgres：Langfuse 自身的元数据库（用户、项目、API key、配置…）
+  # ⚠️⚠️ 计划卡点就在这一行：官方默认 5432，与项目库 infra/compose.yml
+  #      的 127.0.0.1:5432 **硬冲突**（容器名不同不代表端口不撞）。
+  #      这里挪到 **5433**：宿主侧唯一，容器内仍是 5432（DATABASE_URL 不用改）。
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: docker.io/postgres:${POSTGRES_VERSION:-17}
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    environment:
+      POSTGRES_USER: ${LANGFUSE_PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${LANGFUSE_PG_PASSWORD:?LANGFUSE_PG_PASSWORD is required}
+      POSTGRES_DB: ${LANGFUSE_PG_DB:-postgres}
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - 127.0.0.1:5433:5432
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  langfuse_postgres_data:
+    name: llmops-langfuse-postgres-data
+  langfuse_clickhouse_data:
+    name: llmops-langfuse-clickhouse-data
+  langfuse_clickhouse_logs:
+    name: llmops-langfuse-clickhouse-logs
+  langfuse_minio_data:
+    name: llmops-langfuse-minio-data
+  langfuse_redis_data:
+    name: llmops-langfuse-redis-data

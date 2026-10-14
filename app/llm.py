@@ -53,6 +53,8 @@ from tenacity import (
     wait_random,
 )
 
+import observability
+
 log = logging.getLogger("llmops.llm")
 
 # ---------------------------------------------------------------------------
@@ -531,19 +533,34 @@ def chat(
             return _openai_chat_once(tier, payload, structured, temperature, max_tokens)
         return _mock_chat_once(tier, payload, structured)
 
-    retryer = _retryer()
-    for attempt in retryer:
-        with attempt:
-            content, usage, finish = _once()
-    attempts = _attempts_of(retryer)
+    # trace 包在重试循环**外面**：一次 /chat 一条 trace，attempts/retries 记在 trace 里，
+    # 而不是每次重试各起一条 —— 否则面板上「3 次重试」看起来像「3 次独立请求」。
+    with observability.trace_chat(
+        request_id=request_id,
+        model=tier.model or f"mock-{tier.name}",
+        tier=tier.name,
+        mode=LLM_MODE,
+        messages=payload,
+        structured=structured,
+        stream=False,
+    ) as rec:
+        retryer = _retryer()
+        for attempt in retryer:
+            with attempt:
+                content, usage, finish = _once()
+        attempts = _attempts_of(retryer)
 
-    parse_failed = False
-    if structured and isinstance(content, str):
-        try:
-            content = json.loads(content)
-        except (TypeError, ValueError):
-            # 模型没守 JSON 约定：保留原文 + 标记，让调用方看到现场而不是拿到 null
-            parse_failed = True
+        parse_failed = False
+        if structured and isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except (TypeError, ValueError):
+                # 模型没守 JSON 约定：保留原文 + 标记，让调用方看到现场而不是拿到 null
+                parse_failed = True
+
+        rec["usage"] = usage
+        rec["content"] = content
+        rec["finish_reason"] = finish
 
     return ChatOutcome(
         request_id=request_id,
@@ -603,12 +620,39 @@ def open_stream(
             gen, usage_sink, first = _once()
     attempts = _attempts_of(retryer)
 
+    # ⚠️ 流式的 trace 不能在**这里**结束：open_stream() 一返回，调用方还没消费完，
+    #    usage_sink 此刻是空的（openai 要到流末才填）。
+    #    所以把 trace 上下文搬进生成器 —— 直到 deltas 迭代完才 end()。
+    #    trace_chat 内的 with 必须包住整个 yield from，否则面板上 token 永远是 0。
+    def _traced() -> Iterator[str]:
+        with observability.trace_chat(
+            request_id=request_id,
+            model=tier.model or f"mock-{tier.name}",
+            tier=tier.name,
+            mode=LLM_MODE,
+            messages=payload,
+            structured=structured,
+            stream=True,
+        ) as rec:
+            # ⚠️ usage 绑定的是**同一个字典对象**，不是快照：
+            #    openai 流末原地更新它，SSE 的 done 帧才能读到成本。
+            rec["usage"] = usage_sink
+            buf: list[str] = []
+            try:
+                for chunk in _chain(first, gen):
+                    buf.append(chunk)
+                    yield chunk
+            finally:
+                # 流过早断开（客户端超时/取消）时也要收尾：能拿多少算多少
+                rec["content"] = "".join(buf)
+                _safe_close(stale.get("gen"))
+
     return ChatStream(
         request_id=request_id,
         model=tier.model or f"mock-{tier.name}",
         tier=tier.name,
         mode=LLM_MODE,
-        deltas=_chain(first, gen),
+        deltas=_traced(),
         attempts=attempts,
         retries=max(0, attempts - 1),
         structured=structured,
