@@ -241,13 +241,21 @@ def _langfuse_trace(client, request_id, model, tier, mode, messages, structured,
     span_cm = client.start_as_current_span(
         name="chat",
         input={"messages": messages},
-        metadata={"tier": tier, "upstream_mode": mode, "structured": structured, "stream": stream},
+        # request_id 带进 metadata：面板上能按「哪一次 HTTP 请求」反查 trace，
+        # 没有它就只能在海量 trace 里按时间戳猜。
+        metadata={
+            "request_id": request_id,
+            "tier": tier,
+            "upstream_mode": mode,
+            "structured": structured,
+            "stream": stream,
+        },
     )
     gen_cm = client.start_as_current_generation(
         name=f"chat.{tier}",
         model=model,
         input=messages,
-        metadata={"stream": stream, "structured": structured},
+        metadata={"request_id": request_id, "stream": stream, "structured": structured},
     )
     return span_cm, gen_cm
 

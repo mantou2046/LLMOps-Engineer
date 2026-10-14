@@ -118,7 +118,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          # ⚠️ 实测 1G 会被 Compose v2 当成 cgroup 硬上限，Next.js 服务直接 OOM 崩溃。
+          #    本机可用约 18GB，给 2G 稳妥（Langfuse 官方建议 web 2–4G）。
+          memory: 2G
 
   # ---------------------------------------------------------------------------
   # ClickHouse：trace / observation 的存储引擎（v3 起从 Postgres 迁到 ClickHouse）
@@ -146,7 +148,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          # 摄入 trace 时 ClickHouse 较吃内存，1G 偏紧，给 2G 稳妥
+          memory: 2G
 
   # ---------------------------------------------------------------------------
   # MinIO：S3 兼容对象存储（事件与媒体存档）
