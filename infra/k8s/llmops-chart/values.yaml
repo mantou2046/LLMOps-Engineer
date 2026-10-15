@@ -65,6 +65,32 @@ rbac:
   # Role 名。留空 = 自动用 <fullname>
   roleName: ""
 
+# =============================================================================
+# NetworkPolicy · 网络层最小权限（W2 D7 遗留补齐，2026-10-15）
+# =============================================================================
+# ⚠️ 先记住 NetworkPolicy 的两条反直觉语义：
+#   1. **没配 = 全通**（不是全禁）—— 所以「没配 NetworkPolicy」不等于「安全」；
+#   2. **一旦被选中 = 默认拒绝** —— 只要有任一策略选中本 Pod，
+#      未显式 allow 的流量**全部被拒**，包括 DNS！所以 egress 里必须放行 53 端口。
+#
+# ⚠️ **本机 kind 的 kindnet CNI 不支持 NetworkPolicy** ——
+#    这里配了也不会真正拦截流量（`kubectl describe netpol` 能看，但不生效）。
+#    这是「配置 vs 执行」分离的典型例子：NetworkPolicy 只是给 CNI 的声明。
+#    要在 kind 上真正验证，需换 Calico / Cilium（较重，本阶段不做）。
+networkPolicy:
+  # 默认关闭：CNI 不支持时开了也只是"声明"，反而给人「已加固」的错觉。
+  # 演示/学习时设 true 看渲染结果。
+  enabled: false
+  # 允许哪个命名空间的流量入站（默认放行 Ingress 控制器）
+  ingressNamespace: ingress-nginx
+  # 是否放行同 Chart 内 Pod 互访（多副本/未来 sidecar 场景）
+  allowIntraNamespace: true
+  egress:
+    # 是否启用出站策略。⚠️ 启用后**必须**保留 DNS(53) 放行，否则 Pod 解析不了任何服务名
+    enabled: true
+    # 是否放行到本命名空间内 Postgres(5432) 的出站
+    allowPostgres: true
+
 # This is for setting Kubernetes Annotations to a Pod.
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
 podAnnotations: {}

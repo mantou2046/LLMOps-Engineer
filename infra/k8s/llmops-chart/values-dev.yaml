@@ -99,6 +99,18 @@ autoscaling:
   maxReplicas: 5
   targetCPUUtilizationPercentage: 50
 
+# W2 D7 遗留 · NetworkPolicy（2026-10-15 补齐并实测）
+# ⚠️ 实测结论：**kind 的 kindnetd 支持 NetworkPolicy**（v20260820），netpol 真的生效！
+#    验证方式：开着 netpol 时，从 default 命名空间的 Pod 访问 dev 的 Service → 超时；
+#    关掉 netpol 后同一测试 → 立即返回 200。对比明确。
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+  allowIntraNamespace: true
+  egress:
+    enabled: true
+    allowPostgres: true
+
 # ingress：dev 用独立 host，避免和 prod 抢
 ingress:
   enabled: false

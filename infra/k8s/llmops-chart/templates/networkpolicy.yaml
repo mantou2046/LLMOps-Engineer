@@ -1,0 +1,79 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+  NetworkPolicy · 网络层最小权限（W2 D7 遗留补齐，2026-10-15）
+
+  ⚠️ 核心认知：**NetworkPolicy 是「配了不一定生效」的资源**。
+     它只是给 CNI 插件的「声明」——真正执行拦截的是 CNI。
+     kind 默认的 kindnet **不支持 NetworkPolicy**，所以这里配了也不会真拦流量；
+     要在 kind 上验证需换 Calico / Cilium（见 infra/k8s/README 或 DEC 记录）。
+
+  默认语义（务必记住，最容易理解反）：
+    · **没有** NetworkPolicy 时：所有 Pod 对所有 Pod 全通（默认不是全禁！）
+    · 一旦某 Pod 被**任何** NetworkPolicy 的 podSelector 选中，
+      该 Pod 立刻变成「**默认拒绝**」——只有策略里显式 allow 的流量才放行
+    · 即：NetworkPolicy 是「白名单叠加」，不是「黑名单」。
+
+  本策略做的事（选中最典型的两条）：
+    ① 入站：只允许来自 Ingress 控制器命名空间的流量访问容器端口
+    ② 出站（可选）：只允许 DNS 解析 + HTTPS 出站（访问上游 API）
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "llmops-chart.fullname" . }}
+  labels:
+    {{- include "llmops-chart.labels" . | nindent 4 }}
+spec:
+  # 选中本 Chart 的 Pod —— 选中即意味着「默认拒绝」
+  podSelector:
+    matchLabels:
+      {{- include "llmops-chart.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    {{- if .Values.networkPolicy.egress.enabled }}
+    - Egress
+    {{- end }}
+  ingress:
+    # ① 只放行「Ingress 控制器所在命名空间」到容器端口的流量
+    #    ⚠️ 用 namespaceSelector（按命名空间）而非 ipBlock（按 IP）——
+    #       Pod IP 会变，命名空间标签稳定。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.containerPort }}
+    # ② 同 Chart 内 Pod 互访（如未来加 sidecar / 多副本间调用）
+    {{- if .Values.networkPolicy.allowIntraNamespace }}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "llmops-chart.selectorLabels" . | nindent 14 }}
+    {{- end }}
+  {{- if .Values.networkPolicy.egress.enabled }}
+  egress:
+    # ① DNS 解析（**必需**，否则连服务名都解析不了，Pod 会「莫名」连不上任何东西）
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # ② 出站访问上游 LLM API（HTTPS）
+    - ports:
+        - protocol: TCP
+          port: 443
+    {{- if .Values.networkPolicy.egress.allowPostgres }}
+    # ③ 访问本命名空间内的 Postgres（5432）
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
+  {{- end }}
+{{- end }}
