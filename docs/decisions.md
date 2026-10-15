@@ -813,11 +813,56 @@ DEC-011 做资源账本时一并把 limits 也校准一遍。
 
 ---
 
+## DEC-019 · 本机无 GPU 的现实：本地推理服务选型（2026-10-15 · W2 D10）
+
+**背景**：D10 要给 `/chat` 配一条「自托管」上游通道，与托管 API 组成双通道，并作为 primary 重试耗尽后的 fallback 兜底。第一选择是 vLLM（LLMOps 事实标准：OpenAI 兼容、continuous batching、生态成熟），但本机**没有 GPU**，只能走 CPU 路径。
+
+**决策**
+
+1. **放弃 vLLM 的 CPU 镜像**（`vllm/vllm-openai-cpu:latest`，v0.31.0）—— 它在**本机 Docker Desktop + WSL2 环境下无法完成引擎 warmup**，会永久卡死。
+2. **改用 Ollama** 提供本地 OpenAI 兼容端点（`http://localhost:11434/v1`）。
+3. **fallback 的配置语义不变**：仍是 `LLM_FALLBACK_ENABLED / MODEL / API_KEY / BASE_URL`，只是 `BASE_URL` 从 vLLM 的 `:8000/v1` 换成 Ollama 的 `:11434/v1` —— 协议层零改动。
+
+**实测证据（vLLM 为何被放弃）**
+
+| 排查维度 | 尝试 | 结果 |
+| --- | --- | --- |
+| 计算量 | `--max-model-len` 2048 → 1024 → **256** | 全卡；256 的 prefill 计算量可忽略仍卡 → **排除算力** |
+| CPU 核数 | auto（仅 3 核）→ `VLLM_CPU_OMP_THREADS_BIND=0-7` | 仍卡 |
+| 内存上限 | 8G → 12G | 仍卡 |
+| 共享内存 | `shm_size: 1gb`（容器内实测 1.0G 可用） | 仍卡 |
+| 权限 | `privileged: true`（消除 `numa_*` EPERM） | 仍卡 |
+| 引擎版本 | V1（默认）→ `VLLM_USE_V1=0` | 仍卡 |
+| OpenMP | `KMP_DUPLICATE_LIB_OK=TRUE` | 仍卡 |
+| 启动模式 | `--enforce-eager`（跳过 torch.compile） | 仍卡 |
+
+**共同症状**：日志稳定停在 `Warming up model for the compilation...`，之后每 60 秒一条 `No available shared memory broadcast block found in 60 seconds`，`/v1/models` 永不返回 200。
+
+**理由**
+
+- **为什么不继续深挖 vLLM**：D10 时间盒 1.5h，8 类配置已一致指向「镜像与 WSL2 运行时不兼容」，再往下是内核/驱动级排查，与「学 LLMOps 工程流程」的目标错位。**任务卡本身就预判了这点**（"本机无 GPU，vLLM 可能根本起不来 —— 起不来就直接跳过，别在这耗时间"）。
+- **为什么 Ollama 合适**：同样暴露 OpenAI 兼容的 `/v1/chat/completions`，`app/llm.py` 协议层一行不用改；CPU 上秒级启动、模型管理内置。代价是没有 continuous batching 这类服务端优化，但对「跑通双通道 + 拿延迟对比」够用。
+- **为什么值得记进日志**：这不是「环境坏了」，而是**会反复出现的选型约束** —— 无 GPU 机器上「能跑什么推理服务」有明确边界，下次不必重走这 8 类排查。
+
+**实测数据（Ollama · qwen2.5:0.5b · 生成 64 tok）**
+
+| 并发 | p50 | p90 | RPS | tok/s |
+| --- | --- | --- | --- | --- |
+| 1 | 3.10s | 3.61s | 0.33 | 14.1 |
+| 4 | 3.45s | 4.93s | 0.99 | 40.8 |
+
+**读法**：CPU 上多核并行能把吞吐拉近 3 倍，但**绝对值**仍是「单机玩具级」—— 这正说明为什么生产环境的自托管推理必须配 GPU。
+
+**复核条件**：换到有 GPU 的机器后，vLLM 应作为首选重新评估，并重跑双通道压测确认服务端优化带来的吞吐差异。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
 - [x] 为什么生产环境要最小权限（W2 D7）→ 见 DEC-016
 - [x] 重试为什么用指数退避、重试几次就放弃（W2 D8）→ 见 DEC-018
-- [ ] prompt 为什么是代码不是配置（W3）
-- [ ] 为什么先 RAG 而不是先微调（W7）
-- [ ] 语义缓存阈值怎么定（W7）
+- [x] 本机无 GPU 时本地推理怎么选（W2 D10）→ 见 DEC-019
+- [ ] prompt 为什么是代码不是配置（W3 · 待记）
+- [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
+- [ ] 语义缓存阈值怎么定（W7 · 待记）

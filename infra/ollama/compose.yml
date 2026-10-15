@@ -1,0 +1,50 @@
+# W2 D10 · 本地推理服务（Ollama · CPU）
+#
+# 用途：给 /chat 提供一条「自托管」上游通道，与托管 API 组成双通道，
+#       并作为 primary 失败时的 fallback 兜底（见 app/llm.py 的 LLM_FALLBACK_*）。
+#
+# 为什么不用 vLLM：
+#   vllm/vllm-openai-cpu:latest（v0.31.0）在本机 Docker Desktop + WSL2 环境下
+#   **引擎 warmup 阶段死锁** —— 已系统排查 8 类配置（计算量 256/1024/2048、
+#   CPU 核数 auto/0-7、内存 8G/12G、shm 1G、privileged、V0/V1 引擎、KMP、OMP），
+#   全部卡在 "Warming up model for the compilation..." 后的 60 秒超时循环。
+#   详见 infra/vllm/compose.yml 的逐条注释与 docs/decisions.md 的 DEC-019。
+#   → 改用 Ollama：CPU 上秒级启动，同样暴露 OpenAI 兼容接口。
+#
+# 启动：
+#   docker compose -f infra/ollama/compose.yml up -d
+#   docker exec llmops-ollama ollama pull qwen2.5:0.5b
+# 探活：
+#   curl -s http://localhost:11434/v1/models
+# 试调（OpenAI 兼容，api-key 随便填）：
+#   curl -s http://localhost:11434/v1/chat/completions \
+#     -H 'Content-Type: application/json' \
+#     -H 'Authorization: Bearer ollama' \
+#     -d '{"model":"qwen2.5:0.5b","messages":[{"role":"user","content":"你好"}],"max_tokens":32}'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: llmops-ollama
+    restart: unless-stopped
+    # ⚠️ Ollama 默认只监听容器内 127.0.0.1:11434，需要显式绑 0.0.0.0
+    #    才能被宿主机的端口映射访问到。
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+      # CPU 推理：限制并行请求数，避免把小机器打满（按需调整）
+      OLLAMA_NUM_PARALLEL: "2"
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      # 模型权重持久化：二次启动不再下载
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  ollama_models:
+    driver: local

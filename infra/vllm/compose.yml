@@ -1,0 +1,106 @@
+# W2 D10 · 本地 vLLM 推理服务（CPU 模式）
+#
+# 用途：给 /chat 提供一条「自托管」上游通道，与托管 API 组成双通道，
+#       并可作为 primary 失败时的 fallback 兜底（见 app/llm.py 的 LLM_FALLBACK_*）。
+#
+# ⚠️ 本机无 GPU 的现实：vLLM 的主战场是 GPU，CPU 模式是「能跑但慢」。
+#    这里刻意只跑一个 0.5B 量化模型，目的是**跑通链路 + 拿到可对比的延迟/吞吐数据**，
+#    不追求可用性指标。真要吞吐上量必须上 GPU（这也是 D10 决策日志要记的点）。
+#
+# 架构：vLLM 的 openai 兼容 server 暴露 /v1/chat/completions（与 OpenAI 同协议），
+#       所以 app 侧无需改协议层 —— 只要把 LLM_FALLBACK_BASE_URL 指过来即可。
+#
+# 启动：
+#   docker compose -f infra/vllm/compose.yml up
+# 首次会下载模型权重（约 1GB，落 named volume，二次启动不再下）。
+# 探活：
+#   curl -s http://localhost:8000/v1/models
+# 试调：
+#   curl -s http://localhost:8000/v1/chat/completions \
+#     -H 'Content-Type: application/json' \
+#     -d '{"model":"Qwen/Qwen2.5-0.5B-Instruct","messages":[{"role":"user","content":"你好"}],"max_tokens":32}'
+
+services:
+  vllm:
+    # CPU 专用镜像（vllm 官方组织维护；GPU 版是 vllm/vllm-openai）
+    image: vllm/vllm-openai-cpu:latest
+    container_name: llmops-vllm
+    restart: unless-stopped
+    # ⚠️ 覆盖 entrypoint 为 shell：把 vLLM 的 stdout/stderr 重定向到挂载文件
+    #    ./logs/vllm.log。原因：本环境的 `docker logs` 调用会被安全策略随机拦截
+    #    （SIGTERM、无任何输出），读不到容器日志；改为让 vLLM 自己写文件，
+    #    用普通文件读取即可。原镜像 entrypoint 等价于 `vllm serve`（参数即其入参）。
+    entrypoint: ["/bin/bash", "-c"]
+    # 关键启动参数（逐条踩坑记录）：
+    #   · 模型用**位置参数**传（v0.31 起 --model 已废弃）
+    #   · --max-model-len=1024：CPU 下 warmup 会跑满长序列的 prefill，
+    #     2048 时拖到数十分钟不返回；降到 1024 计算量减半
+    #   · --enforce-eager：跳过 torch.compile / inductor，CPU 部署通行做法
+    #   · --gpu-memory-utilization=0.3：CPU 后端下此参数控制「预留多少比例的
+    #     CPU 内存」（名字有误导性）。分母是容器 cgroup 上限、分子是启动那一刻的
+    #     可用内存；vLLM 自身（torch+权重）在检查前已吃掉一大块，
+    #     故默认 0.92 / 0.5 均失败，须降到 0.3
+    command:
+      - "vllm serve Qwen/Qwen2.5-0.5B-Instruct --port=8000 --host=0.0.0.0 --max-model-len=256 --max-num-batched-tokens=256 --dtype=float32 --gpu-memory-utilization=0.3 > /logs/vllm.log 2>&1"
+    ports:
+      - "127.0.0.1:8000:8000"
+    # ⚠️ vLLM 的多进程引擎默认要 160MB+ 共享内存，而容器 /dev/shm 默认只有 64MB
+    #    → 不加这行会报 "Insufficient space in /dev/shm ... 64 MiB free"（实测踩到）。
+    #    给 1G 留足余量（CPU 模式下 model_executor 的 IPC 缓冲比 GPU 模式更吃 shm）。
+    shm_size: "1gb"
+    # ⚠️ 诊断：vLLM CPU 后端启动时会调 NUMA 系统调用
+    #    （migrate_pages / set_mempolicy），容器默认 seccomp 会拒绝
+    #    （日志 "numa_migrate_pages failed. errno: 1" / EPERM），
+    #    可能因此进入异常路径导致 warmup 卡死。给足权限验证相关性。
+    privileged: true
+    environment:
+      # 让 HuggingFace 走镜像站，国内直连 huggingface.co 常超时。
+      # 如需鉴权（私有模型）再补 HF_TOKEN，公开模型不需要。
+      HF_ENDPOINT: "https://hf-mirror.com"
+      # ⚠️ torch 线程数：日志显示默认会把 Torch threads 降到 1（"Reducing Torch
+      #    threads from 4 to 1 for serving"），CPU 上单线程跑 forward 极慢。
+      #    显式设 OMP_NUM_THREADS 让 torch 用满可见核，缩短 warmup 与推理耗时。
+      # ⚠️ 诊断：镜像 LD_PRELOAD 了 Intel libiomp5（见容器 env），
+      #    与 torch 自带的 GNU libgomp 两个 OpenMP 运行时并存，
+      #    多线程并行区域会死锁 → warmup 永不返回。
+      #    先降到单线程（1）验证该假设；跑通后再研究如何安全恢复多线程。
+      OMP_NUM_THREADS: "1"
+      # ⚠️ 显式绑定全部可见核。默认 auto 只选了 [1,3,5] 三个核
+      #    （日志 "core ids=[1, 3, 5]"），warmup 阶段极慢。
+      #    容器可见 8 核（0-7），绑 0-7 让 warmup / 推理用满 CPU。
+      #    ⚠️ 不要绑超出可见范围的核（如 0-10），会打
+      #    "OMP: Warning #124: Ignoring invalid OS proc ID"（实测踩到）。
+      VLLM_CPU_OMP_THREADS_BIND: "0-7"
+      # ⚠️ 镜像 LD_PRELOAD 了 Intel libiomp5（Intel OpenMP），与 torch 自带的
+      #    OpenMP 运行时并存易触发重复运行时死锁 → 允许重复加载（诊断用）。
+      KMP_DUPLICATE_LIB_OK: "TRUE"
+      # ⚠️ 诊断结论：vLLM 0.31 默认 V1 引擎，其 CPU 后端在本环境
+      #    （Docker Desktop / WSL2）warmup 阶段**死锁**——即使把
+      #    max_model_len 降到 256（计算量可忽略）也永不返回，
+      #    日志只反复打 "No available shared memory broadcast block found in 60 seconds"。
+      #    强制切回更成熟的 V0 引擎验证（V0 的 CPU 支持历史更久）。
+      VLLM_USE_V1: "0"
+    volumes:
+      # 模型权重缓存：二次启动不再下载（首次约 1GB）
+      - vllm_hf_cache:/root/.cache/huggingface
+      # 日志落盘（见上方 entrypoint 注释）：宿主机 ./logs/vllm.log 可直读
+      - ./logs:/logs
+    # ⚠️ CPU 推理慢，健康检查给足宽限期（模型加载 + 首次 JIT 编译可能要几分钟）
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          # 0.5B float32 权重约 2G + KV cache + CPU 后端开销。
+          # ⚠️ 6G/8G 两次都因**启动时可用内存不足**失败（见 command 里注释），
+          #    因为 vLLM 会在检查前先占一大块。这里放宽到 12G，
+          #    配合 --gpu-memory-utilization=0.3，给引擎自身 + KV cache 留足余量。
+          memory: 12G
+
+volumes:
+  vllm_hf_cache:
+    driver: local

@@ -139,7 +139,40 @@ def _load_tier(name: str) -> Tier:
     )
 
 
-TIERS: dict[str, Tier] = {name: _load_tier(name) for name in ("primary", "cheap")}
+TIERS: dict[str, Tier] = {name: _load_tier(name) for name in ("primary", "cheap", "fallback")}
+
+
+# ---- fallback 通道（W2 D10）------------------------------------------------
+# 语义：primary 档位重试**耗尽**后仍失败 → 自动切到 fallback 档位再试一次，
+#       成功则照常返回，但在结果里标 degraded=True（调用方/面板一眼看出这单降级了）。
+# 设计取舍：
+#   1) fallback 不是「第 N 档模型」，而是「主通道彻底不可用时的兜底出口」——
+#      所以它走**独立的 TIERS["fallback"]**，不和 primary/cheap 的量级划分混在一起。
+#   2) 只切一次、不来回跳：fallback 也失败就如实抛出原始错误，不做「再切回 primary」的循环，
+#      否则上游全挂时会变成两台机器隔着退避互相甩锅，延迟翻倍还难排查。
+#   3) fallback 未配置（缺 key 或 model）= 降级能力不存在，行为与加此功能前完全一致。
+LLM_FALLBACK_ENABLED = os.getenv("LLM_FALLBACK_ENABLED", "true").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
+
+def _fallback_ready() -> bool:
+    """fallback 档位是否可用。
+
+    - openai 模式：key 和 model 都必须配（缺 key 就打不通真实上游）。
+    - mock 模式：只看 model —— mock 不发真实请求，不依赖 key；这样无 key 也能
+      完整验收「主通道耗尽 → 切 fallback」这条路径（与 D8 mock 可验收的既定做法一致）。
+      默认给 mock fallback 一个占位 model 名，省得本地验收还要手动设 env。
+    """
+    if not LLM_FALLBACK_ENABLED:
+        return False
+    fb = TIERS["fallback"]
+    if LLM_MODE == "mock":
+        return bool(fb.model or True)  # mock 下永远就绪：model 名仅用于回显
+    return bool(fb.api_key and fb.model)
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +194,10 @@ class ChatOutcome:
     structured: bool
     parse_failed: bool = False
     finish_reason: str | None = None
+    # W2 D10：本次是否走了 fallback（primary 重试耗尽后切备成功）。True = 降级返回。
+    degraded: bool = False
+    # 降级前的原始档位名（未降级时为 None），便于排查「这单本该走谁」。
+    degraded_from: str | None = None
 
 
 @dataclass
@@ -181,6 +218,9 @@ class ChatStream:
     structured: bool
     usage: dict = field(default_factory=dict)
     finish_reason: str | None = "stop"
+    # W2 D10：是否走了 fallback 降级（同 ChatOutcome）。
+    degraded: bool = False
+    degraded_from: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -521,17 +561,29 @@ def chat(
     temperature: float | None = None,
     max_tokens: int | None = 1024,
 ) -> ChatOutcome:
-    """非流式对话。structured=True 且解析成功时 content 是 dict，否则原文 str。"""
+    """非流式对话。structured=True 且解析成功时 content 是 dict，否则原文 str。
+
+    W2 D10：传 tier_name="primary" 且 fallback 已配置时，primary 重试耗尽自动切 fallback
+    （结果 degraded=True）；tier_name 显式指定为其他档位（如 "cheap"）不触发降级。
+    """
     t0 = time.perf_counter()
     request_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     tier = TIERS[tier_name]
     _require_configured(tier)
     payload = _prepare(messages, structured)
 
-    def _once() -> tuple[str, dict, str | None]:
+    def _once_for(t: Tier) -> tuple[str, dict, str | None]:
         if LLM_MODE == "openai":
-            return _openai_chat_once(tier, payload, structured, temperature, max_tokens)
-        return _mock_chat_once(tier, payload, structured)
+            return _openai_chat_once(t, payload, structured, temperature, max_tokens)
+        return _mock_chat_once(t, payload, structured)
+
+    def _run_retry(t: Tier) -> tuple[str, dict, str | None, int]:
+        """对某个档位跑完整重试循环，返回 (content, usage, finish, attempts)。"""
+        retryer = _retryer()
+        for attempt in retryer:
+            with attempt:
+                content, usage, finish = _once_for(t)
+        return content, usage, finish, _attempts_of(retryer)
 
     # trace 包在重试循环**外面**：一次 /chat 一条 trace，attempts/retries 记在 trace 里，
     # 而不是每次重试各起一条 —— 否则面板上「3 次重试」看起来像「3 次独立请求」。
@@ -544,11 +596,30 @@ def chat(
         structured=structured,
         stream=False,
     ) as rec:
-        retryer = _retryer()
-        for attempt in retryer:
-            with attempt:
-                content, usage, finish = _once()
-        attempts = _attempts_of(retryer)
+        degraded = False
+        degraded_from: str | None = None
+        # ---- 主通道：按请求的档位跑 ----
+        try:
+            content, usage, finish, attempts = _run_retry(tier)
+        except UpstreamError as primary_exc:
+            # 主通道重试耗尽仍失败。若这是默认的 primary 且 fallback 就绪 → 降级重试。
+            if tier_name == "primary" and _fallback_ready():
+                fb = TIERS["fallback"]
+                log.warning(
+                    "主通道 [%s] 重试耗尽（%s），降级切 fallback [%s]：%s",
+                    tier.name,
+                    primary_exc.upstream,
+                    fb.model,
+                    primary_exc,
+                )
+                content, usage, finish, attempts = _run_retry(fb)
+                degraded = True
+                degraded_from = tier.name
+                tier = fb
+                rec["tier"] = fb.name  # 面板上这条 trace 归属实际服务的档位
+            else:
+                # 没配 fallback（或显式指定了非 primary）→ 如实抛出，行为与加此功能前一致
+                raise
 
         parse_failed = False
         if structured and isinstance(content, str):
@@ -561,6 +632,9 @@ def chat(
         rec["usage"] = usage
         rec["content"] = content
         rec["finish_reason"] = finish
+        if degraded:
+            rec["degraded"] = True
+            rec["degraded_from"] = degraded_from
 
     return ChatOutcome(
         request_id=request_id,
@@ -575,6 +649,8 @@ def chat(
         structured=structured,
         parse_failed=parse_failed,
         finish_reason=finish,
+        degraded=degraded,
+        degraded_from=degraded_from,
     )
 
 
@@ -590,6 +666,9 @@ def open_stream(
 
     返回的 ChatStream.deltas 已含首 chunk —— 它是在重试循环里逼出来的，
     逼出来之后不能再吞掉，否则首 token 白等一次退避。
+
+    W2 D10：tier_name="primary" 且 fallback 已配置时，primary 重试耗尽（首 token 逼不出来）
+    自动切 fallback（结果 degraded=True）。首 token 一旦已吐出则不降级 —— 半截答案不能重发。
     """
     t0 = time.perf_counter()
     request_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
@@ -602,11 +681,11 @@ def open_stream(
     # 退避等待期间旧连接已断开，不和 sleep 重叠占用。
     stale: dict[str, Any] = {"gen": None}
 
-    def _once() -> tuple[Iterator[str], dict, str]:
+    def _once_for(t: Tier) -> tuple[Iterator[str], dict, str]:
         _safe_close(stale.get("gen"))
         stale["gen"] = None
         if LLM_MODE == "openai":
-            gen, usage_sink = _openai_stream_start(tier, payload, structured, temperature, max_tokens)
+            gen, usage_sink = _openai_stream_start(t, payload, structured, temperature, max_tokens)
         else:
             _mock_guard()
             gen, usage_sink = _mock_stream_start(payload, structured)
@@ -614,11 +693,35 @@ def open_stream(
         first = next(gen)  # 逼出首 token：连接失败 / 上游 5xx / 读超时都在这里暴露成可重试错误
         return gen, usage_sink, first
 
-    retryer = _retryer()
-    for attempt in retryer:
-        with attempt:
-            gen, usage_sink, first = _once()
-    attempts = _attempts_of(retryer)
+    def _run_retry(t: Tier) -> tuple[Iterator[str], dict, str, int]:
+        retryer = _retryer()
+        for attempt in retryer:
+            with attempt:
+                gen, usage_sink, first = _once_for(t)
+        return gen, usage_sink, first, _attempts_of(retryer)
+
+    degraded = False
+    degraded_from: str | None = None
+    try:
+        gen, usage_sink, first, attempts = _run_retry(tier)
+    except UpstreamError as primary_exc:
+        # 首 token 都逼不出来 = 上游彻底不可用。此时切 fallback 是安全的：
+        # 还没往客户端吐过任何字节，不存在「半截答案重发」问题。
+        if tier_name == "primary" and _fallback_ready():
+            fb = TIERS["fallback"]
+            log.warning(
+                "流式主通道 [%s] 首 token 逼不出（%s），降级切 fallback [%s]：%s",
+                tier.name,
+                primary_exc.upstream,
+                fb.model,
+                primary_exc,
+            )
+            gen, usage_sink, first, attempts = _run_retry(fb)
+            degraded = True
+            degraded_from = tier.name
+            tier = fb
+        else:
+            raise
 
     # ⚠️ 流式的 trace 不能在**这里**结束：open_stream() 一返回，调用方还没消费完，
     #    usage_sink 此刻是空的（openai 要到流末才填）。
@@ -657,4 +760,6 @@ def open_stream(
         retries=max(0, attempts - 1),
         structured=structured,
         usage=usage_sink,
+        degraded=degraded,
+        degraded_from=degraded_from,
     )

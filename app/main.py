@@ -246,10 +246,28 @@ class ChatRequest(BaseModel):
     max_tokens: int | None = Field(default=1024, ge=1, le=8192)
 
 
-def _attempt_headers(attempts: int, retries: int) -> dict[str, str]:
+def _attempt_headers(
+    attempts: int,
+    retries: int,
+    degraded: bool = False,
+    degraded_from: str | None = None,
+) -> dict[str, str]:
     """重试次数写进响应头：curl -i 一眼看到「自动重试过」，不必解析 body。
-    响应体里同样带 attempts/retries —— 双通道可查，别只在一边。"""
-    return {"X-Upstream-Attempts": str(attempts), "X-Upstream-Retries": str(retries)}
+    响应体里同样带 attempts/retries —— 双通道可查，别只在一边。
+    W2 D10：降级同样上头（X-LLM-Degraded），运维一眼可辨这单走的是备用通道。"""
+    headers = {"X-Upstream-Attempts": str(attempts), "X-Upstream-Retries": str(retries)}
+    headers.update(_degraded_headers(degraded, degraded_from))
+    return headers
+
+
+def _degraded_headers(degraded: bool, degraded_from: str | None) -> dict[str, str]:
+    """降级标记头：未降级不发（避免给正常请求加噪音头）。"""
+    if not degraded:
+        return {}
+    headers = {"X-LLM-Degraded": "true"}
+    if degraded_from:
+        headers["X-LLM-Degraded-From"] = degraded_from
+    return headers
 
 
 def _chat_502(exc: UpstreamError) -> HTTPException:
@@ -287,6 +305,7 @@ def chat(req: ChatRequest) -> Response:
             # X-Accel-Buffering=no：反向代理层别缓存 SSE（否则 delta 被攒成一坨才到客户端）
             headers={
                 **_attempt_headers(stream.attempts, stream.retries),
+                **_degraded_headers(stream.degraded, stream.degraded_from),
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
             },
@@ -307,6 +326,7 @@ def chat(req: ChatRequest) -> Response:
         content={
             "request_id": out.request_id,
             "model": out.model,
+            "tier": out.tier,
             "upstream_mode": out.mode,
             "structured": out.structured,
             "content": out.content,
@@ -316,8 +336,11 @@ def chat(req: ChatRequest) -> Response:
             "retries": out.retries,
             "latency_ms": round(out.latency_ms, 1),
             "parse_failed": out.parse_failed,
+            # W2 D10：是否走了 fallback 降级（primary 重试耗尽后切备成功）
+            "degraded": out.degraded,
+            "degraded_from": out.degraded_from,
         },
-        headers=_attempt_headers(out.attempts, out.retries),
+        headers=_attempt_headers(out.attempts, out.retries, out.degraded, out.degraded_from),
     )
 
 
@@ -332,9 +355,13 @@ def _sse_body(stream: ChatStream, *, structured: bool) -> Iterator[str]:
         {
             "request_id": stream.request_id,
             "model": stream.model,
+            "tier": stream.tier,
             "upstream_mode": stream.mode,
             "attempts": stream.attempts,
             "retries": stream.retries,
+            # W2 D10：首帧就告诉客户端这单是否降级
+            "degraded": stream.degraded,
+            "degraded_from": stream.degraded_from,
         },
     )
     parts: list[str] = []
@@ -356,6 +383,8 @@ def _done_payload(stream: ChatStream, parts: list[str], structured: bool) -> dic
         "attempts": stream.attempts,
         "retries": stream.retries,
         "finish_reason": stream.finish_reason,
+        "degraded": stream.degraded,
+        "degraded_from": stream.degraded_from,
     }
     if structured:
         payload["structured"] = True

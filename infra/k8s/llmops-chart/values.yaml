@@ -128,6 +128,13 @@ env:
     value: "200"
   - name: MOCK_CHUNK_DELAY_MS
     value: "60"
+  # ---- W2 D10 · fallback 兜底通道 ----
+  # primary 重试耗尽后自动切这条（结果标 degraded=true）。默认开；关掉 = 行为退回加此功能前。
+  # mock 模式无需 key 即可验收降级路径；openai 模式要真生效须在 Secret 里补 LLM_FALLBACK_API_KEY。
+  - name: LLM_FALLBACK_ENABLED
+    value: "true"
+  - name: LLM_FALLBACK_MODEL
+    value: "fallback-model"
   # ---- W2 D9 · 观测开关 ----
   # ⚠️ 默认 "off"：观测组件（Langfuse）的可靠性等级低于业务，
   #    绝不能因为「碰巧集群里没部署 Langfuse」就让 /chat 挂掉。
