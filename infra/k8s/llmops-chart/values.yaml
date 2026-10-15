@@ -339,6 +339,25 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
 
+# =============================================================================
+# PodDisruptionBudget · 自愿中断兜底（W2 D11）
+# =============================================================================
+# ⚠️ PDB 管的是**自愿中断**（`kubectl drain`、节点升级、集群缩容走 Eviction API），
+#    **管不了**非自愿中断（节点宕机 / OOMKilled）—— 后者靠「多副本 + 反亲和」摊风险。
+# ⚠️ 也**拦不住** `kubectl delete pod`（不走 Eviction API），只拦 drain 这类操作。
+#
+# ⚠️ minAvailable 与 maxUnavailable **只能选一个**（同时写会被 API Server 拒绝）：
+#    · minAvailable  —— 「至少留 N 个」，保护强；但副本数 == N 时 drain 会永久卡住
+#    · maxUnavailable —— 「最多拿走 N 个」，多副本场景更常用，drain 能推进
+#    这里两个都放（默认只启用 maxUnavailable），要切就注释掉另一个。
+pdb:
+  # 默认关闭：无负载/单副本场景开它意义不大，还会挡住正常的 drain 演练
+  enabled: false
+  # 「至少留 N 个」。⚠️ 置 null 表示不用这个口径（走 maxUnavailable）
+  minAvailable: null
+  # 「最多拿走 N 个」。默认口径
+  maxUnavailable: 1
+
 # Additional volumes on the output Deployment definition.
 volumes: []
   # - name: foo
@@ -356,4 +375,24 @@ nodeSelector: {}
 
 tolerations: []
 
+# 用户自定义 affinity（会与下方 podAntiAffinity 合并渲染，见 deployment.yaml）
 affinity: {}
+
+# =============================================================================
+# PodAntiAffinity · 副本打散（W2 D11）
+# =============================================================================
+# 目的：让同一 Deployment 的多个副本**尽量/必须**落在不同节点，避免
+#       「一台机器挂了 → 这个服务全灭」的单点故障。
+# ⚠️ 反亲和**依赖节点多样性** —— kind 单节点集群上：
+#    · type: soft（preferred）→ 副本仍能调度（挤同一节点，只是"尽量"分散）✅ 默认
+#    · type: hard（required）→ 第 2 个副本**永久 Pending**（无处可去）⚠️ 经典反例
+# topologyKey 用 kubernetes.io/hostname = 按「节点」打散；
+# 想按「可用区」打散就换 topology.kubernetes.io/zone（云上才有多 zone）。
+podAntiAffinity:
+  # 默认关闭：单节点 kind 上开了 soft 也看不出效果，需多节点才有意义
+  enabled: false
+  # soft（preferred，默认，不会 Pending） / hard（required，单节点会 Pending）
+  type: soft
+  # soft 时的权重（1–100，越大越"想让"它分散）
+  weight: 100
+  topologyKey: kubernetes.io/hostname

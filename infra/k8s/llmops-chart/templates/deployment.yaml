@@ -91,9 +91,37 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{/* affinity：把「用户自定义 affinity」与「本 Chart 的反亲和开关」合并渲染。
+           ⚠️ 二者都往 affinity 下写，所以必须合并成一个字段，不能各写各的
+              （YAML 里同名 key 后写的会覆盖前者）。 */}}
+      {{- if or .Values.affinity .Values.podAntiAffinity.enabled }}
       affinity:
+        {{- with .Values.affinity }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.podAntiAffinity.enabled }}
+        podAntiAffinity:
+          {{- if eq .Values.podAntiAffinity.type "hard" }}
+          {{/* 硬反亲和：同拓扑域（默认同节点）绝不调度两个副本。
+               ⚠️ 单节点 kind 上开 hard = 第 2 个副本**永久 Pending**（没有别的节点可去）。
+                  这正是「反亲和依赖节点多样性」的反例，见 D11 实测。 */}}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "llmops-chart.selectorLabels" . | nindent 18 }}
+              topologyKey: {{ .Values.podAntiAffinity.topologyKey }}
+          {{- else }}
+          {{/* 软反亲和：尽量分散，但节点不够时**允许挤在一起**（不会 Pending）。
+               kind 单节点场景的默认选择。 */}}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: {{ .Values.podAntiAffinity.weight }}
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "llmops-chart.selectorLabels" . | nindent 20 }}
+                topologyKey: {{ .Values.podAntiAffinity.topologyKey }}
+          {{- end }}
+        {{- end }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:

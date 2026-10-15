@@ -21,7 +21,9 @@ type: application
 # 0.4.0（2026-10-14 · W2 D9）：env 增加 OBSERVABILITY 开关；ConfigMap 加 LANGFUSE_HOST/
 #        LANGFUSE_SAMPLE_RATE；Secret 加 LANGFUSE_PUBLIC_KEY/SECRET_KEY（prod 列入必填）。
 #        ⚠️ 纯 values 变更（无新模板），但 Secret/ConfigMap 的键变了 → 按语义化版本升 minor。
-version: 0.4.0
+# 0.5.0（2026-10-15 · W2 D11）：新增 templates/pdb.yaml（PodDisruptionBudget）；
+#        deployment.yaml 支持 podAntiAffinity（soft/hard 可切）→ 生产可用性收口。
+version: 0.5.0
 
 # This is the version number of the application being deployed. This version number should be
 # incremented each time you make changes to the application. Versions are not expected to
@@ -33,4 +35,10 @@ version: 0.4.0
 #    0.4.0（W2 D8）：新增 /chat（流式 + 结构化输出 + 重试退避超时）、/healthz、/readyz。
 #    0.5.0（W2 D9）：新增 app/observability.py —— 每次 /chat 打成 Langfuse trace，
 #        含 token / 成本 / 错误标记；/ready 报告观测状态；关闭时 flush 未发送队列。
-appVersion: "0.5.0"
+#    0.5.1（W2 D11）：修复 app/main.py 缺 logging.basicConfig() 导致 log.info 被
+#        root logger 默认级别（WARNING）吞掉 —— OBSERVABILITY=log 档的 trace 摘要
+#        此前根本看不到（D11 全链路复跑时发现）。
+#    0.5.2（W2 D11）：observability.py 用 blocked_instrumentation_scopes=["fastapi"]
+#        屏蔽 FastAPI 内置 OTel 埋点 —— 否则探针 /health、/ready 每 3 秒一条 span，
+#        业务 trace 被淹没（实测 200 条里 199 条是探针噪声）。
+appVersion: "0.5.2"

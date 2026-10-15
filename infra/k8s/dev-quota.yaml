@@ -1,0 +1,44 @@
+# =============================================================================
+# ResourceQuota · 压测兜底（W2 D11）
+# -----------------------------------------------------------------------------
+# 为什么需要它（任务卡 D11 卡点）：
+#   本地 kind 是**单节点**，HPA 扩到 maxReplicas 时所有副本挤在一台机器上抢 CPU。
+#   没有配额上限时，一次「压猛了」就可能把节点打到 OOM，连 kubelet / 其他
+#   工作负载一起拖下水 —— 云上多节点还能靠调度摊开，本地只有这一条命。
+#   所以压测前先给命名空间加一道硬上限，让 Pod 扩到配额就用 Pending 卡住，
+#   而不是把整个节点压死。
+#
+# ⚠️ 为什么**不放进 Helm Chart**：
+#   ResourceQuota 是**命名空间级**资源，一个 ns 只需要一份；放进 Chart 会变成
+#   「每 install 一个 release 就多一份同名 quota」，语义错位（多 release 共用一个 ns 时打架）。
+#   它属于「命名空间的前置基建」，和 Namespace 本身同级，故用独立 manifest。
+#
+# ⚠️ 副作用（务必知道）：命名空间一旦有 ResourceQuota，**之后创建的 Pod 必须显式
+#   声明 requests/limits**，否则会被 API Server 拒绝（Invalid: must specify limits.cpu …）。
+#   本 Chart 的 Deployment 已带 resources，所以不受影响；但手工 kubectl run 的 Pod 会踩到。
+#
+# ⚠️ 与 HPA 的关系：HPA 只认「当前用量 ÷ requests」，**不看配额**。
+#   配额是「地板下的兜底」，HPA 是「天花板上的扩缩」——两层各管一段。
+#
+# 数值依据（dev 实际用量）：
+#   · 单副本 requests 50m / 128Mi、limits 500m / 256Mi
+#   · HPA maxReplicas=5 → 峰值 requests 250m、limits 2.5 核
+#   · 这里给到 requests 2 核 / limits 4 核，留足余量又能兜住「压猛了」
+# =============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: llmops-quota
+  namespace: dev
+  labels:
+    app.kubernetes.io/part-of: llmops
+    app.kubernetes.io/component: quota
+spec:
+  hard:
+    # 计算资源上限（requests 是调度承诺，limits 是运行上限）
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    # Pod 数量上限：防止 HPA 失控时无限膨胀
+    pods: "20"

@@ -857,12 +857,92 @@ DEC-011 做资源账本时一并把 limits 也校准一遍。
 
 ---
 
+## DEC-020 · 为什么生产环境要 PDB 与反亲和（2026-10-15 · W2 D11）
+
+**背景**
+D11 要给 prod 做可用性收口。两个常被并列提起、但**管的是两件不同的事**的机制：PodDisruptionBudget（PDB）与 PodAntiAffinity（反亲和）。
+
+**选项**
+
+1. 只加 PDB —— 挡住 drain 时的批量驱逐
+2. 只加反亲和 —— 让副本分散到不同节点
+3. **两个都加，各管一段**
+
+**选择**：方案 3
+
+**理由**
+
+- 先分清两类中断，这是本决策的核心：
+  - **自愿中断**（voluntary）：`kubectl drain`、节点升级、集群缩容 —— 人/控制器**主动**发起，走 Eviction API。**PDB 管这段**。
+  - **非自愿中断**（involuntary）：节点宕机、内核 panic、OOMKilled —— **PDB 管不了**，只能靠「多副本 + 反亲和」把风险摊到多个节点。
+- 所以两者**互补而非重复**：PDB 保「主动操作时不断服」，反亲和保「被动故障时不团灭」。
+- ⚠️ PDB 的两条易错语义：① 只拦 Eviction API，**拦不住 `kubectl delete pod`**；② selector 必须与 Deployment 一致，否则保护的是一个空集合。
+
+**实测证据（本地 kind 单节点）**
+
+| 机制 | 操作 | 结果 |
+| --- | --- | --- |
+| PDB | 2 副本、`minAvailable:1` 时驱逐 pod1 | **HTTP 201**（成功） |
+| PDB | 立刻驱逐 pod2 | **HTTP 429** `Cannot evict pod as it would violate the pod's disruption budget` |
+| PDB | 把副本缩到 1 | `Allowed disruptions: 1 → **0**`（任何驱逐都会被拒） |
+| 反亲和 | `type: hard` + 单节点 + 删 pod 触发重调度 | 新副本 **Pending**：`0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules` |
+| 反亲和 | `type: soft`（prod 默认） | 正常调度（单节点上"尽量分散"退化为"挤一起"，不阻塞） |
+
+**代价**
+
+- `minAvailable` 与副本数相等时，drain 会**永久卡住** —— 这是「保护强度」与「可运维性」的直接取舍。
+- 反亲和 `hard` 在节点数不足时会让副本直接 Pending —— **反亲和依赖节点多样性**，单节点集群上 `hard` 是自伤。
+- 本机 kind 只有 1 个节点，反亲和的**收益无法真实验证**（只能验证"配置正确 + hard 会 Pending"）；多节点集群才看得出分散效果。
+
+**复核条件**
+上多节点集群后重测反亲和的真实分散效果；prod 副本数变化时复核 PDB 口径（`minAvailable` vs `maxUnavailable`）。
+
+---
+
+## DEC-021 · dev / prod 隔离的边界在哪（2026-10-15 · W2 D11）
+
+**背景**
+D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**隔离到底隔了什么、又没隔什么**，否则容易误以为「有两个 Namespace 就等于生产级隔离」。
+
+**选项**
+
+1. 两个独立 Chart —— 彻底，但模板重复、修一处要改两遍
+2. **同一 Chart + 两套 values + 两个 Namespace**
+3. 两个独立集群 —— 隔离最强，本地做不到
+
+**选择**：方案 2
+
+**理由**
+同一 Chart 保证「模板只有一份真相」，values 差异承载环境差异。实测确认隔离由四层共同构成：
+
+| 层 | 机制 | 实测 |
+| --- | --- | --- |
+| 命名空间 | `dev` / `prod` 两个 ns | `kubectl get ns` 两行独立 |
+| 对象命名 | `fullname = <release>-<chart>` | `llmops-dev-llmops-chart` vs `llmops-prod-llmops-chart` |
+| **selector** | `app.kubernetes.io/instance: <Release.Name>` | **这是互不干扰的关键** —— 拿 dev 的 selector 去 prod ns 找 Pod = 0 个 |
+| 配置 | ConfigMap / env 由 values 覆盖 | dev：`DEBUG`/`mock`/`log`/`ENABLE_LOAD_ENDPOINT=1`；prod：`INFO`/`openai`/`langfuse`/`ENABLE_LOAD_ENDPOINT=0` |
+
+**不隔离的部分（必须知道）**：集群级资源是共用的 —— CRD、Ingress 控制器、StorageClass、metrics-server、镜像仓库。所以「dev 改坏了 CRD」会波及 prod。
+
+**代价**
+
+- ⚠️ Helm 的 values 合并是**浅合并 + 递归合并 map**，但**列表整体替换** —— dev 的 `env` 只写一项会让另一项消失，所以两套 values 的 `env` 都必须写全。
+- 两套环境要**各自 upgrade**：本次就实测到 prod 落后 dev 4 个小版本（chart 0.2.0 vs 0.4.0，env 缺 `LLM_MODE`/`OBSERVABILITY`），是「多环境"验证"」该抓的第一类问题。
+- 一个 release 的 values 漂移不会自动同步到另一个 —— 没有"继承"机制。
+
+**复核条件**
+上真实生产时，Namespace 隔离不够（需独立集群或至少独立节点池）；多租户场景还要补 ResourceQuota / LimitRange 做硬隔离（本次已给 dev 配了 quota 兜底，见 `infra/k8s/dev-quota.yaml`）。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
 - [x] 为什么生产环境要最小权限（W2 D7）→ 见 DEC-016
 - [x] 重试为什么用指数退避、重试几次就放弃（W2 D8）→ 见 DEC-018
 - [x] 本机无 GPU 时本地推理怎么选（W2 D10）→ 见 DEC-019
+- [x] 为什么生产环境要 PDB 与反亲和（W2 D11）→ 见 DEC-020
+- [x] dev / prod 隔离的边界在哪（W2 D11）→ 见 DEC-021
 - [ ] prompt 为什么是代码不是配置（W3 · 待记）
 - [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
 - [ ] 语义缓存阈值怎么定（W7 · 待记）

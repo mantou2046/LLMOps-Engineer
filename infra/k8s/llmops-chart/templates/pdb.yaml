@@ -1,0 +1,39 @@
+{{- if .Values.pdb.enabled }}
+{{/*
+  PodDisruptionBudget · 自愿中断的兜底（W2 D11）
+
+  ⚠️ 先分清两类「中断」，PDB 只管其中一类：
+    · **非自愿中断**（involuntary）：节点宕机、内核 panic、OOMKilled —— PDB 管不了，
+      靠的是「多副本 + 反亲和」把风险摊开。
+    · **自愿中断**（voluntary）：`kubectl drain`、节点升级、集群缩容 —— 这类是
+      **人/控制器主动发起**的，PDB 在这里生效：它告诉 Eviction API
+      「这个工作负载在任何时刻至少得留几个可用副本」，drain 就会**排队等待**而不是硬删。
+
+  ⚠️ 关键语义（最容易记反）：
+    · PDB **不阻止** Pod 崩溃、也不阻止你 `kubectl delete pod` —— 它只拦 **Eviction API**。
+      `kubectl drain` 走 eviction，所以受 PDB 约束；`kubectl delete pod` 不走，所以拦不住。
+    · PDB 只对「被 selector 选中的 Pod」生效，且**必须**用与 Deployment 一致的 selector，
+      否则它保护的是一个空集合（看着建了，实际毫无作用）。
+
+  ⚠️ minAvailable 与 maxUnavailable **二选一**（同时写会被 API Server 拒绝）：
+    · minAvailable: 1  —— 「至少留 1 个」；单副本场景下会让 drain 永久卡住（无副本可牺牲），
+       这是**保护 vs 可用性**的经典取舍。
+    · maxUnavailable: 1 —— 「最多拿走 1 个」；多副本场景更常用，drain 能推进。
+    本 Chart 默认走 maxUnavailable: 1（见 values.yaml）。
+*/}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "llmops-chart.fullname" . }}
+  labels:
+    {{- include "llmops-chart.labels" . | nindent 4 }}
+spec:
+  {{- if not (kindIs "invalid" .Values.pdb.minAvailable) }}
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "llmops-chart.selectorLabels" . | nindent 6 }}
+{{- end }}

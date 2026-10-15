@@ -111,6 +111,16 @@ def estimate_cost(model: str, usage: dict | None) -> dict:
 _client: Any = None
 _client_ready = False
 
+# ---- W2 D11 修复：屏蔽 FastAPI 内置 OTel 埋点的噪声 span ---------------------
+# ⚠️ FastAPI 0.115+ 在检测到 opentelemetry-api 时，会给**每个 HTTP 请求**自动建 span
+#    （scope 名固定为 "fastapi"，见 fastapi/telemetry/_asgi.py 的 get_tracer("fastapi")）。
+#    而 Langfuse SDK 3.x 提供全局 TracerProvider → 这些 span 会**全被上报**。
+#    后果：探针 /health、/ready 每 3 秒一次，业务 trace 被彻底淹没 ——
+#    D11 实测：200 条 observation 里 199 条是探针噪声，真业务 trace 只有 1 条。
+#    用 blocked_instrumentation_scopes 屏蔽该 scope 后，只留我们自己用
+#    start_as_current_span 建的 chat / chat.* span。
+_BLOCKED_INSTRUMENTATION_SCOPES = ["fastapi"]
+
 
 def _get_client() -> Any:
     """惰性拿 Langfuse 客户端。返回 None 表示「不可用，跳过观测」。"""
@@ -133,6 +143,8 @@ def _get_client() -> Any:
             secret_key=LANGFUSE_SECRET_KEY,
             host=LANGFUSE_HOST,
             sample_rate=LANGFUSE_SAMPLE_RATE,
+            # 屏蔽 FastAPI 内置埋点噪声（见文件上方 _BLOCKED_INSTRUMENTATION_SCOPES 说明）
+            blocked_instrumentation_scopes=_BLOCKED_INSTRUMENTATION_SCOPES,
         )
         log.info("Langfuse 观测已启用：host=%s sample_rate=%.2f", LANGFUSE_HOST, LANGFUSE_SAMPLE_RATE)
     except Exception:  # noqa: BLE001 - 观测组件初始化失败绝不能拖垮服务

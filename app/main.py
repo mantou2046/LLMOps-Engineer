@@ -51,7 +51,19 @@ from llm import ChatStream, UpstreamError, sse
 
 log = logging.getLogger("llmops.api")
 
-APP_VERSION = os.getenv("APP_VERSION", "0.5.0")
+# ---- W2 D11 修复：配置日志输出（此前 log.info 全部静默丢失） -------------------
+# ⚠️ 原来只有 getLogger()、没有 basicConfig()：Python 的 root logger 默认用
+#    lastResort handler（级别 WARNING），于是所有 log.info() 都被吞掉 ——
+#    OBSERVABILITY=log 档本该打印的「trace 摘要」一条都看不到。
+#    D11 全链路复跑时发现：dev 打 /chat 后 kubectl logs 里没有任何 trace 行。
+#    级别取 LOG_LEVEL（由 ConfigMap 注入：dev=DEBUG / prod=INFO）。
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    stream=sys.stdout,
+)
+
+APP_VERSION = os.getenv("APP_VERSION", "0.5.2")
 
 # ---- D5 演示旋钮①：模拟慢启动 ----------------------------------------------
 # 单位秒，默认 0 = 行为与之前完全一致。

@@ -19,7 +19,7 @@ replicaCount: 1
 image:
   repository: llmops-api
   pullPolicy: IfNotPresent
-  tag: "0.5.0"
+  tag: "0.5.2"
 
 # 资源给宽松些，方便本地随便压测
 resources:
@@ -33,7 +33,7 @@ resources:
 # ⚠️ 列表整体替换：全部写全
 env:
   - name: APP_VERSION
-    value: "0.5.0-dev"
+    value: "0.5.2-dev"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
   # dev 打开 /work CPU 压测端点 —— HPA 扩缩容演示要有可控的 CPU 负载源
@@ -111,9 +111,23 @@ networkPolicy:
     enabled: true
     allowPostgres: true
 
-# ingress：dev 用独立 host，避免和 prod 抢
-ingress:
+# W2 D11 · PDB：dev **不开**
+#   理由：dev 起点就是单副本（HPA min=1），minAvailable=1 会让 drain 永久卡住，
+#   而 maxUnavailable=1 在单副本下等于「允许全拿走」—— 两种口径都没意义。
+#   PDB 的价值在多副本场景，留给 prod 演示。
+pdb:
   enabled: false
+
+# W2 D11 · 反亲和：dev **不开**
+#   本机 kind 只有 1 个节点，开了 soft 也不会真分散（无第二个节点可去）。
+#   多节点集群才值得开，见 values-prod.yaml 的说明。
+podAntiAffinity:
+  enabled: false
+
+# ingress：dev 用独立 host，避免和 prod 抢
+# ⚠️ W2 D11 打开：全链路复跑要经 Ingress 访问 Chart 部署的服务（而不只是 W1 的 default 部署）
+ingress:
+  enabled: true
   className: "nginx"
   hosts:
     - host: llmops-dev.local

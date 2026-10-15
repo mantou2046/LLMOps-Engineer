@@ -19,7 +19,7 @@ replicaCount: 2
 image:
   repository: llmops-api
   pullPolicy: IfNotPresent
-  tag: "0.5.0"
+  tag: "0.5.2"
 
 # 资源收紧：贴近生产配额
 resources:
@@ -33,7 +33,7 @@ resources:
 # ⚠️ 列表整体替换：全部写全
 env:
   - name: APP_VERSION
-    value: "0.5.0"
+    value: "0.5.2"
   - name: STARTUP_DELAY_SECONDS
     value: "0"
   # prod **显式关闭** /work 压测端点 —— 这类"帮忙烧 CPU"的端点在真生产里
@@ -72,7 +72,11 @@ configMap:
     POSTGRES_USER: "llmops"
     LITELLM_BASE_URL: "http://litellm:4000"
     LITELLM_CACHE_ENABLED: "true"
-    LANGFUSE_HOST: "http://localhost:3000"
+    # ⚠️ W2 D11 修正：**不能写 localhost** —— 在 Pod 里 localhost 指的是 Pod 自己，
+    #    而 Langfuse 跑在宿主的 Docker 里。kind 节点内用 host.docker.internal 指回宿主
+    #    （Docker Desktop 特性；Linux 上需用宿主的网桥 IP 或加 hostAliases）。
+    #    实测：Pod 内 `wget http://host.docker.internal:3000/api/public/health` → {"status":"OK"}
+    LANGFUSE_HOST: "http://host.docker.internal:3000"
     # ⚠️ prod 采样率先留 1.0（全量）便于演示；D11 压测时必须调低 ——
     #    trace 落盘量会随 QPS 线性增长，是全链路里最容易把磁盘吃满的一环。
     LANGFUSE_SAMPLE_RATE: "1.0"
@@ -127,3 +131,25 @@ autoscaling:
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 60
+
+# =============================================================================
+# W2 D11 · 生产可用性收口：PDB + 反亲和
+# =============================================================================
+# PDB：prod **开** —— minAvailable: 1 表示「任何时刻至少留 1 个可用副本」。
+#   ⚠️ 实测反例：kind 只有 1 个节点时，`kubectl drain` 唯一节点会让所有 Pod 无处调度，
+#      PDB 的 minAvailable=1 会**拒绝驱逐**（Eviction 返回 429），drain 卡住 ——
+#      这恰恰证明 PDB 生效了（它真的挡住了「一次全端」）；真生产有多节点才能完成 drain。
+#   ⚠️ 反例二：PDB 拦不住 `kubectl delete pod`（不走 Eviction API），只拦 drain 这类自愿中断。
+pdb:
+  enabled: true
+  minAvailable: 1
+  maxUnavailable: null
+
+# 反亲和：prod 用 **soft（preferred）** —— 单节点 kind 上不会 Pending，
+#   换到多节点集群即可自动「尽量分散」。
+#   ⚠️ 若改成 hard（required），单节点上第 2 个副本会**永久 Pending**（D11 实测反例）。
+podAntiAffinity:
+  enabled: true
+  type: soft
+  weight: 100
+  topologyKey: kubernetes.io/hostname
