@@ -1,8 +1,22 @@
 # K8s 概念补齐 —— 6 个「一句话定义 + 一个反例」
 
-> W2 D12 产出（2026-10-16）。来源：Kubernetes 官方中文文档 + 本项目 kind 实测记录。
+> W2 D12 产出（2026-10-16）。来源：Kubernetes 官方中文文档 + 本项目 kind 集群**现场实测**。
 > **验收标准**：每个概念能**一句话说清**，且能举出一个「**以为是这样、其实不是**」的反例。
 > ⚠️ 反例不是装饰 —— 只背定义的人举不出反例；举得出反例，说明你真撞过它、或想通过它为什么这么设计。
+>
+> **实测状态**：6 条里 **5 条已在 kind 上现场复现**（NetworkPolicy 于 10-15 实测，其余 4 条于 10-16 实测）；
+> 只有 HPA 的「稳定窗口」一项是引用 D11 的历史实测数据（本次未重跑压测）。每条末尾都给了可复现命令。
+
+## 实测速览（kind · 2026-10-16）
+
+| # | 概念 | 现场结论 |
+| --- | --- | --- |
+| 1 | `volumeBindingMode` | `standard` = `rancher.io/local-path` + **`WaitForFirstConsumer`**（默认 SC） |
+| 2 | `IngressClass` | `nginx` 类的 **DEFAULT 为空**；不带 `ingressClassName` 的 Ingress → `CLASS=<none>`、`ADDRESS=<none>` |
+| 3 | headless DNS | `postgres` → **Pod IP**（`<POD-IP>`）；`llmops-api` → **ClusterIP**（`<CLUSTER-IP>`）；2 副本 headless → **2 条 A 记录** |
+| 4 | RBAC | 自己的 ConfigMap `yes`、别人的 `no`、`secrets` `no`、跨命名空间 `no`、`list pods` `yes` |
+| 5 | NetworkPolicy | 开着 netpol 跨命名空间**超时**，关掉立即 **200**（10-15） |
+| 6 | HPA | `describe hpa` 直接写 **"as a percentage of request"**：`6% (3m) / 50%` |
 
 ## 总览
 
@@ -32,8 +46,15 @@
 - **默认值是 `Immediate`**，所以本地存储的 StorageClass 必须**显式**写 `volumeBindingMode: WaitForFirstConsumer`。
 - 用了 `WaitForFirstConsumer` 就**别在 Pod 里写 `nodeName`** —— 那会绕过调度器，PVC 直接卡 `pending`。要指定节点用 `nodeSelector: kubernetes.io/hostname`。
 
-**本项目落点**
-`infra/k8s/postgres.yaml` 的 `volumeClaimTemplates` 没写 `storageClassName`，走的是 kind 自带的默认 SC `standard`（`rancher.io/local-path`）—— 它的 `volumeBindingMode` 就是 `WaitForFirstConsumer`，这也是为什么在 kind 上从没踩到上面那个坑。
+**本项目落点 + 本地实测（2026-10-16）**
+`infra/k8s/postgres.yaml` 的 `volumeClaimTemplates` 没写 `storageClassName`，走的是 kind 自带的默认 SC。现场查：
+
+```
+$ kubectl get sc -o custom-columns=NAME:.metadata.name,PROVISIONER:.provisioner,BINDMODE:.volumeBindingMode,DEFAULT:...
+standard   rancher.io/local-path   WaitForFirstConsumer   Delete   true
+```
+
+—— 默认 SC 的 BINDMODE 就是 **`WaitForFirstConsumer`**，这就是为什么在 kind 上从没踩到上面那个坑（换成云上 Immediate 的 SC，同一份 YAML 就可能挂）。
 
 **一句话判据**
 `kubectl get sc -o custom-columns=NAME:.metadata.name,BINDMODE:.volumeBindingMode` —— 本地/云盘 SC 的 BINDMODE 一栏应该是 `WaitForFirstConsumer`。
@@ -53,8 +74,25 @@
 - **默认类**：给某个 IngressClass 打注解 `ingressclass.kubernetes.io/is-default-class: "true"`，未指定 `ingressClassName` 的新 Ingress 才会被赋上它。**同一时刻只允许一个默认类**，否则准入控制器会拦掉新建的 Ingress。
 - **旧注解 `kubernetes.io/ingress.class` 已废弃**，且与 `ingressClassName` **不完全等价**（旧注解直接写控制器名；新字段引用的是带额外配置的 IngressClass 资源）。本仓库统一用新字段。
 
-**本项目落点**
-`infra/k8s/llmops-chart/templates/ingress.yaml` 里 `ingressClassName: {{ .Values.ingress.className }}` —— **className 为空时整行不渲染**，于是就没有类，Ingress 静默失效。所以 values 里必须配。
+**本项目落点 + 本地实测（2026-10-16）**
+`infra/k8s/llmops-chart/templates/ingress.yaml` 里 `ingressClassName: {{ .Values.ingress.className }}` —— **className 为空时整行不渲染**，于是就没有类，Ingress 静默失效。
+
+现场把这条反例做了一遍：
+
+```
+# 现有 Ingress（values 里配了 className: nginx）
+$ kubectl get ingress -A
+NAMESPACE  NAME                      CLASS  HOSTS              ADDRESS    PORTS
+default    llmops-api                nginx  llmops.local       localhost  80
+dev        llmops-dev-llmops-chart   nginx  llmops-dev.local   localhost  80
+
+# 临时建一个不带 ingressClassName 的 Ingress，等 10s
+$ kubectl get ingress no-class-demo -o custom-columns=NAME:.metadata.name,CLASS:.spec.ingressClassName,ADDRESS:.status.loadBalancer.ingress
+NAME            CLASS    ADDRESS
+no-class-demo   <none>   <none>          ← 没有任何控制器认领
+```
+
+同时集群里的 `nginx` IngressClass **没有** `is-default-class` 注解（`DEFAULT` 一栏为空）—— 所以「省略 className 靠默认类兜底」这条路在这个集群里也是不通的。（演示资源已删除。）
 
 **一句话判据**
 `kubectl get ingress -A` 的 `ADDRESS` 不为空、`CLASS` 一栏有值，才算被控制器认领。
@@ -74,11 +112,30 @@
 - **无选择算符的无头 Service**：需要自己管 Endpoints，且 `port` 必须与 `targetPort` 一致。
 - **`publishNotReadyAddresses: true`** 时，**未就绪**的 Pod 也会被解析到 —— 对「先组集群再变就绪」的 StatefulSet 是必需的，对普通服务则是坑。
 
-**本项目落点**
+**本项目落点 + 本地实测（2026-10-16）**
 `infra/k8s/postgres.yaml` 里 `clusterIP: None` 就是无头 —— 因为它是 StatefulSet 的 `serviceName`，要的就是「每个 Pod 一个稳定域名」而不是一个 VIP。
 
+现场三种解析对比（在 `default/llmops-api` Pod 里用 Python `getaddrinfo` 查）：
+
+```
+$ kubectl get svc -A | grep -E "postgres|llmops-api"
+default   llmops-api   ClusterIP   <CLUSTER-IP>   ...   ← 普通 Service：一个 VIP
+default   postgres     ClusterIP   None           ...   ← 无头
+
+# 无头：解析到 Pod IP
+$ nslookup postgres        → <POD-IP>            （= postgres-0 的 Pod IP，非 VIP）
+# 普通：解析到 ClusterIP
+$ nslookup llmops-api      → <CLUSTER-IP>        （= Service 的 VIP）
+
+# 临时起一个 2 副本的 headless Service，验证「A 记录列表」
+$ nslookup dnstest-headless → <POD-IP-1>
+                              <POD-IP-2>         （= 两个 Pod 的 IP，两条 A 记录）
+```
+
+—— 最后那步是关键：**副本数 = A 记录条数**，客户端拿到的是「所有后端」，均衡得自己来。（演示资源已删除。）
+
 **一句话判据**
-`kubectl run -it --rm dnstest --image=busybox -- nslookup <svc>` —— 普通 Service 返回**一个** ClusterIP，headless 返回**多条** Pod IP。
+`kubectl run -it --rm dnstest --image=busybox -- nslookup <svc>` —— 普通 Service 返回**一个** ClusterIP，headless 返回**多条** Pod IP（有几条 = 有几个就绪 Pod）。
 
 ---
 
@@ -94,11 +151,28 @@ RBAC 就是「**谁**（Subject）**能对什么**（Resource）**做什么**（
 - **绑定决定作用域，角色决定内容** —— 同一份 ClusterRole 被 RoleBinding 引用 = 只在本命名空间生效；被 ClusterRoleBinding 引用 = 全集群生效。
 - **「零 Role」不等于「零权限」**：ServiceAccount 天生带 cluster-scoped 的只读 API discovery 权限（`/api/*`、`/healthz`、`/version`）。所谓「最小权限」是**收敛到内置基线**，不是收敛到零。（D7 双路实测：容器内用自带 token 打 API Server，读自己那一个 ConfigMap 200，读同命名空间别人的 403。）
 
-**本项目落点**
-`infra/k8s/llmops-chart/templates/rbac.yaml`（Role + RoleBinding）—— 应用用专属 ServiceAccount 跑，权限只覆盖自己那一个 ConfigMap。
+**本项目落点 + 本地实测（2026-10-16）**
+`infra/k8s/llmops-chart/templates/rbac.yaml`（Role + RoleBinding）—— 应用用专属 ServiceAccount 跑。dev 里那份 Role 的实际规则只有两条：
+
+```json
+[{"apiGroups":[""],"resourceNames":["llmops-dev-llmops-chart-config"],"resources":["configmaps"],"verbs":["get"]},
+ {"apiGroups":[""],"resources":["pods"],"verbs":["get","list"]}]
+```
+
+用 `auth can-i` 逐条打（`--as=system:serviceaccount:dev:llmops-dev-llmops-chart`）：
+
+| 请求 | 结果 |
+| --- | --- |
+| `get configmap/llmops-dev-llmops-chart-config -n dev`（自己的） | **yes** |
+| `get configmap/kube-root-ca.crt -n dev`（同命名空间别人的） | **no** |
+| `get secrets -n dev` | **no** |
+| `get configmap/llmops-dev-llmops-chart-config -n prod`（跨命名空间） | **no** |
+| `list pods -n dev` | **yes** |
+
+—— 边界正好卡在「**这一个** ConfigMap + 读 Pod」，多一格都不给。注意这里用的是 **Role + RoleBinding**；如果把同一份规则写成 **ClusterRole**、再用 **RoleBinding** 引用，效果完全一样（作用域由 Binding 决定），这就是上面反例说的情况。
 
 **一句话判据**
-`kubectl auth can-i get configmap/xxx --as=system:serviceaccount:<ns>:<sa> -n <ns>` —— 自己那一个 200/yes，别人的 no。
+`kubectl auth can-i get configmap/xxx --as=system:serviceaccount:<ns>:<sa> -n <ns>` —— 自己那一个 yes，别人的 / Secret / 跨命名空间都是 no。
 
 ---
 
@@ -138,11 +212,25 @@ HPA 按周期（默认 15s）读指标，算 **期望副本数 = ⌈当前副本
 - **容差**（`behavior.scaleUp/scaleDown.tolerance`，v1.37 GA）防止指标小幅抖动引发反复扩缩；集群级默认由 `--horizontal-pod-autoscaler-tolerance` 控制。
 - **`maxReplicas` 是硬顶，且 HPA 不改变单 Pod 的 `limits`** —— 本项目 D11 实测峰值只有 1.8 核（8 核的 22%），因为每 Pod `limits.cpu=500m` 是硬顶，5 副本合计上限才 2.5 核。
 
-**本项目落点**
-`infra/k8s/llmops-chart/templates/hpa.yaml`：dev 1–5@50%、prod 2–6@60%。压测实测 1→4→5、停压 +5min 缩回 1（`scripts/bench_hpa.py`）。
+**本项目落点 + 本地实测（2026-10-16）**
+`infra/k8s/llmops-chart/templates/hpa.yaml`：dev 1–5@50%、prod 2–6@60%。
+
+现场 `describe` 直接把这句反例写在输出里：
+
+```
+$ kubectl describe hpa -n dev llmops-dev-llmops-chart
+Metrics:  ( current / target )
+  resource cpu on pods  (as a percentage of request):  6% (3m) / 50%
+Min replicas: 1     Max replicas: 5
+Conditions: ScalingActive  True  ValidMetricFound  ...
+```
+
+—— 关键就是 `**as a percentage of request**` 这半句：分子 `3m` 是 Pod 的实际 CPU 用量，分母是 Pod 的 `requests.cpu`（50m），**6% = 3m ÷ 50m**。跟节点有多少核、节点用了百分之几**完全无关**。这也正是 D7 踩坑的机理：requests 定得比实际用量小，利用率就被系统性放大，HPA 一路顶到 `maxReplicas`。
+
+> 扩容/缩容的**稳定窗口**一项本次没重跑压测，引用 D11 的历史实测：CPU 100 秒就掉到 6%，副本数**死守 5 到第 360 秒**（= 300s 缩容窗口 + 采样延迟）。
 
 **一句话判据**
-`kubectl describe hpa <名>` 看 `Metrics` 一栏的 `xx% / yy%` —— 分子是「实际用量」，分母是「requests」，不是节点容量。
+`kubectl describe hpa <名>` 看 `Metrics` 一栏的 `xx% (值) / yy%` —— 分子是「实际用量」，分母是「requests」，不是节点容量。
 
 ---
 
