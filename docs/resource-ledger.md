@@ -58,29 +58,58 @@
 
 ## 4. Docker 磁盘占用（宿主）
 
+> ⚠️ 下表为 **2026-10-16 清理后**实测；10-15 原值（Images 18.37 GB / 可回收 1.39 GB / Volumes 4.74 GB / Build Cache 232.1 MB）括号内保留于 §4.1 对照。
+
 | 类型 | 合计 | 可回收 |
 | --- | --- | --- |
-| Images | 18.37 GB | 1.39 GB |
-| Containers | 371.6 MB | 0 |
-| Local Volumes | 4.74 GB | 0 |
-| Build Cache | 232.1 MB | ~0 |
-| **Docker 内部合计** | **≈ 23.7 GB** | |
+| Images | 18.44 GB | **1.513 GB** |
+| Containers | 473.4 MB | 0 |
+| Local Volumes | 5.648 GB | 0 |
+| Build Cache | 351.6 MB | 36.14 MB |
+| **Docker 内部合计** | **≈ 24.9 GB** | |
 
 **镜像明细**：
 
 | 镜像 | 大小 | 说明 |
 | --- | --- | --- |
-| `llmops-api:0.2.0` / `0.3.0` | 136 MB | W1/W2 早期版本 |
-| `llmops-api:0.5.0` / `0.5.1` / `0.5.2` | 149 MB | 本次 D11 构建 |
+| `llmops-api:0.2.0` | 136 MB | W1 清单 `infra/k8s/app.yaml` **仍在跑**（default/llmops-api 2 副本）→ 保留 |
+| `llmops-api:0.5.2` | 149 MB | 当前 Helm dev/prod 版本 → 保留 |
 | `ollama/ollama` | ~9.4 GB | 本地推理（D10） |
 | Langfuse 6 服务 | ~数 GB | postgres/clickhouse/redis/minio/web/worker |
+
+### 4.1 为什么清理了 4 个旧 tag 却没省多少空间（10-16 实测认知）
+
+删除的 4 个 tag：宿主 `0.3.0` / `0.5.0` / `0.5.1`，节点内另加 `0.1.0`。
+
+**核心事实：5 个 tag 共享 149.2 MB 图层，各自独有层只有 ~130 KB。**
+`docker system df -v` 的 SHARED/UNIQUE 列说明了一切 —— 它们共用 `python:3.12-alpine`
+底座 + venv 层，删掉 4 个 tag 只回收 ≈0.5 MB。
+
+**但可回收总量反而从 1.39 GB 涨到 1.513 GB**，因为删掉共享引用后，
+`python:3.12-alpine`（83.6 MB，容器数 0）等底座镜像进入了可回收范围。
+这也解释了为什么 `docker system df` 的 Images SIZE 略有上升（18.37 → 18.44 GB）——
+总大小统计方式与 tag 数量无关，别被这个数字误导。
+
+> **结论：旧 tag 清理的收益主要是「列表清爽 + 语义清晰」，不是省磁盘。**
+> 真正能回收的大头在别处：`registry.k8s.io/hpa-example` 736 MB、
+> `metrics-server` 111 MB、Build Cache 36 MB、以及 python 底座 83.6 MB。
+
+### 4.2 三个 0.5.x 为什么在 13 分钟内连续出现（D11 迭代链）
+
+| Tag | 时间 | 修了什么 |
+| --- | --- | --- |
+| 0.5.0 | 18:49 | PDB + Pod 反亲和（chart 0.5.0，生产可用性收口） |
+| 0.5.1 | 18:58 | `main.py` 缺 `logging.basicConfig()` → `log.info` 被 root logger 吞 |
+| 0.5.2 | 19:02 | `observability.py` 加 `blocked_instrumentation_scopes=["fastapi"]` → 探针 span 淹没业务 trace（200 条里 199 条是噪声） |
+
+即「全链路复跑时边跑边发现 bug 边重建」，**不是重复构建，是正常调试链**。
 
 ## 5. 数据盘与宿主机磁盘
 
 | 项 | 大小 | 备注 |
 | --- | --- | --- |
 | `docker_data.vhdx` | **33.9 GB** | WSL2 虚拟磁盘（只涨不缩） |
-| Docker 内部实际 | ≈ 23.7 GB | 与 vhdx 差 ~10 GB = **未 TRIM 的已删数据** |
+| Docker 内部实际 | ≈ 24.9 GB | 与 vhdx 差 ~9 GB = **未 TRIM 的已删数据** |
 | C: 可用 | 42 GB | 82% 已用 |
 | E: 可用 | 99 GB | 76% 已用 |
 
@@ -89,5 +118,9 @@
 ## 6. 一句话结论
 
 > 这套「K8s 生产化 + 观测 + 本地推理」的完整环境，**空载约占 1.6 GiB 内存 + 2% CPU，
-> 磁盘约 24 GB（Docker 内部）／34 GB（vhdx）**。CPU 不是瓶颈，**内存和磁盘才是** ——
+> 磁盘约 25 GB（Docker 内部）／34 GB（vhdx）**。CPU 不是瓶颈，**内存和磁盘才是** ——
 > 本地单机跑全套的代价主要花在「控制面 + 观测栈」的固定开销上，而不是业务负载。
+>
+> ⚠️ 10-16 补记：曾误以为「多版本镜像在浪费磁盘」并清掉 4 个旧 tag，
+> 实测只回收 ≈0.5 MB（见 §4.1）。**同底座镜像堆叠几乎零成本**，
+> 需要省空间时应盯 `hpa-example` 736 MB / Build Cache / 观测栈，而不是业务镜像 tag 数。
