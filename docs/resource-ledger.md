@@ -62,11 +62,11 @@
 
 | 类型 | 合计 | 可回收 |
 | --- | --- | --- |
-| Images | 18.44 GB | **1.513 GB** |
+| Images | **17.7 GB** | **776.6 MB** |
 | Containers | 473.4 MB | 0 |
-| Local Volumes | 5.648 GB | 0 |
+| Local Volumes | 5.649 GB | 0 |
 | Build Cache | 351.6 MB | 36.14 MB |
-| **Docker 内部合计** | **≈ 24.9 GB** | |
+| **Docker 内部合计** | **≈ 24.2 GB** | |
 
 **镜像明细**：
 
@@ -91,8 +91,28 @@
 总大小统计方式与 tag 数量无关，别被这个数字误导。
 
 > **结论：旧 tag 清理的收益主要是「列表清爽 + 语义清晰」，不是省磁盘。**
-> 真正能回收的大头在别处：`registry.k8s.io/hpa-example` 736 MB、
-> `metrics-server` 111 MB、Build Cache 36 MB、以及 python 底座 83.6 MB。
+> 真正能回收的大头在别处（`metrics-server` 111 MB、Build Cache 36 MB、python 底座 83.6 MB），
+> 而最大的那个 —— `hpa-example` 736 MB —— 已单独处理，见 §4.3。
+
+### 4.3 清 hpa-example 736 MB：先 untag 一次没删掉的坑（10-16 实测）
+
+第一次 `docker rmi registry.k8s.io/hpa-example:latest` 只输出 `Untagged:`、**没有 `Deleted:`**，
+`docker system df` 毫无变化。根因不是"图层被引用"，而是**同一个镜像 ID 上有两个 tag**：
+
+```
+registry.k8s.io/hpa-example:latest                                    93c2a5cc37c3  736MB
+swr.cn-north-4.myhuaweicloud.com/ddn-k8s/registry.k8s.io/hpa-example 93c2a5cc37c3  736MB  ← 同一个 ID
+```
+
+即当时是从**华为云 K8s 镜像仓库**拉下来的，`registry.k8s.io` 只是个后加的别名。
+**判据：`docker images -a` 里看到同名仓库 + 镜像 ID 相同 = 有多别名**，必须逐个 untag
+直到出现 `Deleted:` 才算真删。补删华为云那条 tag 后才 `Deleted: sha256:93c2a5cc…`。
+
+**实际收益**：Images 18.44 GB → **17.7 GB**，可回收 1.513 GB → **776.6 MB**（回收 ≈740 MB，与预估 736 MB 吻合）。
+
+> ⚠️ 保留项：kind 节点内有 `hpa-example` 自己的 166 MB 副本（ID `4ca4c13a6d7cc`，与宿主那个不是同一镜像），
+> 所以 `infra/k8s/hpa-demo/php-apache.yaml`（`imagePullPolicy: IfNotPresent`）**仍可直接 apply**，
+> 宿主删掉不影响 HPA 演示。
 
 ### 4.2 三个 0.5.x 为什么在 13 分钟内连续出现（D11 迭代链）
 
@@ -109,7 +129,7 @@
 | 项 | 大小 | 备注 |
 | --- | --- | --- |
 | `docker_data.vhdx` | **33.9 GB** | WSL2 虚拟磁盘（只涨不缩） |
-| Docker 内部实际 | ≈ 24.9 GB | 与 vhdx 差 ~9 GB = **未 TRIM 的已删数据** |
+| Docker 内部实际 | ≈ 24.2 GB | 与 vhdx 差 ~10 GB = **未 TRIM 的已删数据** |
 | C: 可用 | 42 GB | 82% 已用 |
 | E: 可用 | 99 GB | 76% 已用 |
 
@@ -118,9 +138,10 @@
 ## 6. 一句话结论
 
 > 这套「K8s 生产化 + 观测 + 本地推理」的完整环境，**空载约占 1.6 GiB 内存 + 2% CPU，
-> 磁盘约 25 GB（Docker 内部）／34 GB（vhdx）**。CPU 不是瓶颈，**内存和磁盘才是** ——
+> 磁盘约 24 GB（Docker 内部）／34 GB（vhdx）**。CPU 不是瓶颈，**内存和磁盘才是** ——
 > 本地单机跑全套的代价主要花在「控制面 + 观测栈」的固定开销上，而不是业务负载。
 >
 > ⚠️ 10-16 补记：曾误以为「多版本镜像在浪费磁盘」并清掉 4 个旧 tag，
 > 实测只回收 ≈0.5 MB（见 §4.1）。**同底座镜像堆叠几乎零成本**，
-> 需要省空间时应盯 `hpa-example` 736 MB / Build Cache / 观测栈，而不是业务镜像 tag 数。
+> 需要省空间时应盯 `hpa-example`（已清，回收 740 MB，见 §4.3）/ Build Cache /
+> 观测栈，而不是业务镜像 tag 数。
