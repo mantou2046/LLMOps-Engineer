@@ -31,3 +31,9 @@ tenacity>=9.0,<10.0
 #    评估过「放进 dev 依赖以免污染生产镜像」，否掉的理由：K8s 的 prod 环境**也要开观测**，
 #    真按环境拆依赖，就得维护两套 requirements，收益（几 MB）不抵维护成本。
 langfuse>=2.50,<4.0
+
+
+# ---- 实验追踪（W3 D14 接入）----
+# 一次 prompt 对比 = 一个 run；参数 / 指标 / 产物进同一个 tracking server
+# ⚠️ 只被 scripts/track_prompt_run.py 用到，/chat 服务本体不 import 它
+mlflow>=3,<4

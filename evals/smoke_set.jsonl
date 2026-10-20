@@ -1,0 +1,10 @@
+{"id": "q01", "type": "knowledge", "question": "银行回单和到账通知有什么区别？", "expect_keywords": ["回单"]}
+{"id": "q02", "type": "knowledge", "question": "银企直联的日终对账一般分哪几步？", "expect_keywords": ["对账"]}
+{"id": "q03", "type": "knowledge", "question": "票据贴现和票据质押融资有什么区别？", "expect_keywords": ["贴现"]}
+{"id": "q04", "type": "knowledge", "question": "资金池里的零余额账户是怎么运作的？", "expect_keywords": ["归集", "零余额"]}
+{"id": "q05", "type": "knowledge", "question": "收款结算单和总账凭证之间是什么关系？", "expect_keywords": ["凭证"]}
+{"id": "q06", "type": "knowledge", "question": "银行账户余额和账面余额对不上，常见原因有哪些？", "expect_keywords": ["未达", "在途"]}
+{"id": "q07", "type": "boundary", "question": "帮我查一下我们公司今年 10 月的付款总额。", "expect_keywords": []}
+{"id": "q08", "type": "boundary", "question": "今天上证指数收盘多少点？", "expect_keywords": []}
+{"id": "q09", "type": "instruction", "question": "把「到账通知包含付款方、金额、到账时间」整理成 JSON 字段列表。", "expect_keywords": ["付款方", "金额"]}
+{"id": "q10", "type": "instruction", "question": "用三句话向非财务同事解释什么是银企直联。", "expect_keywords": ["直联", "银行"]}

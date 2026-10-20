@@ -250,9 +250,20 @@ def scan_file(p: Path, patterns: list[tuple[str, re.Pattern[str]]]) -> list[str]
                     f"{rel}:{lineno}  命中「带口令的连接串」  {mask(mc.group(0))}"
                 )
                 continue
-            # 3) 键值型：值为占位符则放行；键名本身「不是凭据」也放行
+            # 3) 键值型：值为占位符则放行；键名本身「不是凭据」也放行；
+            #    **值就是键名本身**（形如「把 max_tokens 原样传给同名形参」那种传参写法）同样放行。
+            #    背景（2026-10-20 · W3 D14）：D14 追踪脚本里这种传参写法被当成「疑似凭据键值」
+            #    误报 —— 键名含 TOKEN、值是等长标识符，正好撞上 KV 的长度启发式（≥8 字符）。
+            #    判据：值若真等于键名，语义上就不可能是秘密 ——
+            #    没有谁的 API key 会长成字面的那个键名。
+            #    ⚠️ 注释里别写出等号两边的原文：本文件也会被自己扫（第一版注释就自伤过一次）。
             m = KV.search(line)
-            if m and not is_placeholder(m.group(2)) and not _KEY_IS_REF.match(m.group(1).strip()):
+            if (
+                m
+                and m.group(2).strip() != m.group(1).strip()
+                and not is_placeholder(m.group(2))
+                and not _KEY_IS_REF.match(m.group(1).strip())
+            ):
                 findings.append(
                     f"{rel}:{lineno}  命中「疑似凭据键值」  键={m.group(1)}  值={mask(m.group(2))}"
                 )
