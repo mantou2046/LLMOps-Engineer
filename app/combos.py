@@ -41,12 +41,15 @@ COMBO_TTL_SECONDS = float(os.getenv("COMBO_TTL_SECONDS", "0"))
 _lock = threading.Lock()
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
-# 回落默认值：线上没连上 Registry 时用它。
-# ⚠️ 这是**兜底**不是真相源 —— 真相在 Registry 的 combo.json 里。
-FALLBACK_PROMPT = os.getenv(
-    "STRUCTURED_SYSTEM_PROMPT",
-    "你是一个只输出 JSON 的助手。始终用一个合法的 JSON object 作答，不要输出任何额外文字。",
-)
+# 回落用的 prompt：**不再保留硬编码副本**（DEC-027：唯一真源是 prompts/*.yaml）。
+# 这里只读本地文件、不碰 registry —— 兜底路径不该再叠一次网络超时。
+def _fallback_prompt() -> str:
+    try:
+        import prompts  # 同目录模块
+
+        return prompts.load_prompt_local("structured_json", version=1)["template"]
+    except Exception:  # noqa: BLE001 —— 连文件都读不到时，宁可空串也不要瞎编
+        return os.getenv("STRUCTURED_SYSTEM_PROMPT", "")
 
 
 def _local_fallback(alias: str, reason: str) -> dict[str, Any]:
@@ -60,7 +63,7 @@ def _local_fallback(alias: str, reason: str) -> dict[str, Any]:
         "model": os.getenv("LLM_PRIMARY_MODEL", ""),
         "temperature": 0.0,
         "max_tokens": 256,
-        "system_prompt": FALLBACK_PROMPT,
+        "system_prompt": _fallback_prompt(),
     }
 
 

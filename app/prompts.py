@@ -112,6 +112,27 @@ def _local(
     return tpl, int(doc["version"]), prompt_hash(tpl), f"local:{f.relative_to(REPO)}", pick
 
 
+def load_prompt_local(
+    name: str, *, version: int | None = None, label: str | None = None
+) -> dict[str, Any]:
+    """**只读本地 yaml**，不碰 registry（给「兜底」用，零网络、零超时）。
+
+    用途：app/combos.py 等模块的 fallback 需要一份 prompt 原文，但它不能为此
+    再打一次 registry（会叠加一次超时）。2026-10-21 起，代码里不再保留 prompt
+    副本 —— 兜底也读 prompts/*.yaml，保证「唯一真源」（DEC-027）。
+    """
+    tpl, ver, h, src, pick = _local(name, version, label)
+    return {
+        "template": tpl,
+        "version": ver,
+        "hash": h,
+        "source": src,
+        "reason": None,
+        "local_pick": pick,
+        "client": None,
+    }
+
+
 def _registry(
     name: str, version: int | None, label: str | None
 ) -> tuple[str, int, str, str, Any]:

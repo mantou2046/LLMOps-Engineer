@@ -43,6 +43,7 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Iterator
 
 from tenacity import (
@@ -85,10 +86,26 @@ MOCK_CHUNK_DELAY_MS = max(0, int(os.getenv("MOCK_CHUNK_DELAY_MS", "60")))
 
 # 结构化输出时，若调用方没给 system 消息，自动补的指令。
 # OpenAI json_object 模式要求 messages 里出现 "json" 一词才生效，这句话正好满足。
-STRUCTURED_SYSTEM_PROMPT = os.getenv(
-    "STRUCTURED_SYSTEM_PROMPT",
-    "你是一个只输出 JSON 的助手。始终用一个合法的 JSON object 作答，不要输出任何额外文字。",
-)
+@lru_cache(maxsize=1)
+def _default_system_prompt() -> str:
+    """结构化输出的默认 system prompt —— **读 prompts/*.yaml（唯一真源）**。
+
+    优先级：环境变量 `STRUCTURED_SYSTEM_PROMPT`（显式覆盖，D15 起的口子）
+    → `prompts/structured_json/v1.yaml` → 空串。
+    ⚠️ 2026-10-21 D16：这里原本是硬编码字符串，与 prompts/*.yaml 构成「两个真相源」，
+       违反 DEC-027，已改为读文件；读不到时宁可空串，也不再留副本。
+    """
+    override = os.getenv("STRUCTURED_SYSTEM_PROMPT", "").strip()
+    if override:
+        return override
+    try:
+        return prompts.load_prompt_local("structured_json", version=1)["template"]
+    except Exception:  # noqa: BLE001 —— 文件缺失也不能让 import 期炸掉服务
+        return ""
+
+
+# 兼容旧引用（值来自 yaml，不再是硬编码）
+STRUCTURED_SYSTEM_PROMPT = _default_system_prompt()
 
 
 # ---------------------------------------------------------------------------
