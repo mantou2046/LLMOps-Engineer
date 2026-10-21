@@ -277,6 +277,9 @@ def _langfuse_trace(
         model=model,
         input=messages,
         metadata={"request_id": request_id, "stream": stream, "structured": structured},
+        # W3 D16：把 registry 的 prompt 对象挂到 generation —— UI 的 Prompt Name 列
+        # 与「按 prompt 版本筛 trace」都靠它；只写 metadata 填不上这一列。
+        prompt=(prompt_meta or {}).get("client"),
     )
     return span_cm, gen_cm
 

@@ -114,7 +114,13 @@ def _local(
 
 def _registry(
     name: str, version: int | None, label: str | None
-) -> tuple[str, int, str, str]:
+) -> tuple[str, int, str, str, Any]:
+    """返回 (template, version, hash, source, client)。
+
+    ⚠️ 第 5 个元素 client 是 Langfuse 的 PromptClient 对象：observability 会把它
+       传给 start_as_current_generation(prompt=...)，这样 UI 的 Prompt Name 列
+       才会填上、并支持按 prompt 版本联动筛选 trace（只写 metadata 做不到）。
+    """
     """从 Langfuse 拉：按 version 或 label（二者只能选一个）。"""
     from langfuse import Langfuse  # 延迟导入：回落路径不付 import 开销
 
@@ -137,7 +143,7 @@ def _registry(
         fetch_timeout_seconds=FETCH_TIMEOUT,
     )
     tpl = p.prompt if isinstance(p.prompt, str) else str(p.prompt)
-    return tpl, int(p.version), prompt_hash(tpl), "langfuse"
+    return tpl, int(p.version), prompt_hash(tpl), "langfuse", p
 
 
 def load_prompt(
@@ -153,7 +159,7 @@ def load_prompt(
     """
     label = None if version is not None else (label or DEFAULT_LABEL)
     try:
-        tpl, ver, h, src = _registry(name, version, label)
+        tpl, ver, h, src, client = _registry(name, version, label)
         return {
             "template": tpl,
             "version": ver,
@@ -161,6 +167,7 @@ def load_prompt(
             "source": src,
             "reason": None,
             "local_pick": None,
+            "client": client,
         }
     except Exception as e:  # noqa: BLE001 —— 观测/registry 失败不能影响请求
         tpl, ver, h, src, pick = _local(name, version, label)
@@ -171,4 +178,5 @@ def load_prompt(
             "source": src,
             "reason": f"{type(e).__name__}: {str(e)[:160]}",
             "local_pick": pick,
+            "client": None,  # 回落时没有 registry 对象可挂
         }
