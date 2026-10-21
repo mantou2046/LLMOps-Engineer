@@ -1016,6 +1016,31 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 ---
 
+## DEC-027 · prompt 以 git 为真源，registry 只做发布指针（2026-10-21 · W3 D16）
+
+**背景**：prompt 改一个字就是改行为，既要能评审/回滚（像代码），又要能不发版就切（像配置）。两条要求看似冲突。
+
+**选择**：prompt 的**内容**以 git 为唯一真源（`prompts/<name>/v<N>.yaml`），**发布指向**放 registry（Langfuse label / MLflow alias）；两边用 `sha256(模板)[:8]` 对账，CI 里不一致就红。一句话：**git 管「对不对」，registry 管「现在用哪个」。**
+
+**实证**：
+
+| 环节 | 证据 |
+| --- | --- |
+| 内容身份精确到字节 | v1 `d7b79571`；写成 `template: \|` 多一个尾换行立刻变 `c8e16337`。v2 `009c95a5` → `c334b344` |
+| 注册闭环 | v1→`production`（`d7b79571`）、v2→`canary`（`009c95a5`）；`load_prompt` 的 `source` 由 `local` 翻成 `langfuse` |
+| 指针一步可挪 | 给 v2 加 `production` → v1 **自动变 `[]`**（labels 跨版本唯一）；`new_labels=[]` 是空操作，删 label 只能走 UI |
+| 删了不心疼 | 误删 version #2 → `canary` 404；一条命令从 yaml 重建，hash 不变；**重建后版本号还是 v2**（编号复用 → 身份只能靠 hash） |
+| 换版延迟 | 不重启可换版，但生效 = TTL(60s) + 1 个请求（stale-while-revalidate）；要立即生效用 `PROMPT_CACHE_TTL=0` |
+| 血缘对齐 | 两个 run 的 `model` / `max_tokens` / `eval_set` / `git_sha` 四项一致，唯一变量是 prompt 版本；`format_ok_rate` 双 1.0、`refusal_rate` 0.0 → 0.2 |
+
+**代价与对策**：双写 → 注册脚本只读 yaml + CI 对账 + `labels.yaml` 把指针镜像回 git；指针人人可拨 → 走 review/CI（同 DEC-025）；回落「猜最新版」会静默给错版本 → `labels.yaml` 还原指向、取不到才 latest 并在 `local_pick` 写明。
+
+**反模式**：只存数据库（无 diff/blame，删版本即事故）；只放 git（换版要发版）；prompt 在代码库再复制一份（两个真相源）；只写 trace metadata 不挂 prompt 对象（UI 的 `Prompt Name` 列空、按版本联动失效）。
+
+**面试口径**：prompt 是代码不是配置——它改的是行为，所以要 PR/diff/评估/回滚；但它需要不发版就切，所以指针放 registry。追问「怎么保证 registry 里就是评审过的那版」→ hash 对账；「registry 挂了怎么办」→ 回落本地但必须说得出凭什么（`local_pick`）。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
@@ -1029,6 +1054,6 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 - [x] MLflow 与 Langfuse 的分工（W3 D14）→ 见 DEC-024
 - [x] 模型注册用 alias 不用 stage（W3 D15）→ 见 DEC-025
 - [x] 模型版本与 prompt 版本必须一起管（W3 D15）→ 见 DEC-026
-- [ ] prompt 为什么是代码不是配置（W3 · 待记）
+- [x] prompt 为什么是代码不是配置（W3 D16）→ 见 DEC-027
 - [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
 - [ ] 语义缓存阈值怎么定（W7 · 待记）
