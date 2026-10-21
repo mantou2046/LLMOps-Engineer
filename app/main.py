@@ -352,7 +352,15 @@ def chat(req: ChatRequest) -> Response:
             "degraded": out.degraded,
             "degraded_from": out.degraded_from,
         },
-        headers=_attempt_headers(out.attempts, out.retries, out.degraded, out.degraded_from),
+        headers={
+            **_attempt_headers(out.attempts, out.retries, out.degraded, out.degraded_from),
+            # W3 D16：线上到底是哪版 prompt —— curl -i 一眼可见
+            **(
+                {"X-Prompt-Version": out.prompt_version, "X-Prompt-Hash": out.prompt_hash}
+                if out.prompt_version
+                else {}
+            ),
+        },
     )
 
 

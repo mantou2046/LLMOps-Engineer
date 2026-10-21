@@ -181,6 +181,7 @@ def trace_chat(
     messages: list[dict],
     structured: bool,
     stream: bool,
+    prompt_meta: dict | None = None,
 ) -> Iterator[dict]:
     """一次 /chat 的 trace 上下文。
 
@@ -219,7 +220,7 @@ def trace_chat(
 
     try:
         span_cm, gen_cm = _langfuse_trace(
-            client, request_id, model, tier, mode, messages, structured, stream
+            client, request_id, model, tier, mode, messages, structured, stream, prompt_meta
         )
         with span_cm:
             with gen_cm as generation:
@@ -238,7 +239,9 @@ def trace_chat(
         log.debug("Langfuse trace 上报失败", exc_info=True)
 
 
-def _langfuse_trace(client, request_id, model, tier, mode, messages, structured, stream):
+def _langfuse_trace(
+    client, request_id, model, tier, mode, messages, structured, stream, prompt_meta=None
+):
     """构造 Langfuse 的 trace + generation 上下文（**SDK v3 API**）。
 
     层级设计：
@@ -263,6 +266,10 @@ def _langfuse_trace(client, request_id, model, tier, mode, messages, structured,
             "upstream_mode": mode,
             "structured": structured,
             "stream": stream,
+            # W3 D16：版本随行 —— 事后按 prompt_version 过滤「某版 prompt 的全部请求」
+            "prompt_name": "structured_json" if prompt_meta else None,
+            "prompt_version": (f"v{prompt_meta['version']}" if prompt_meta else None),
+            "prompt_hash": (prompt_meta["hash"] if prompt_meta else None),
         },
     )
     gen_cm = client.start_as_current_generation(

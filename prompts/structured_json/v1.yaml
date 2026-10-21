@@ -1,0 +1,8 @@
+name: structured_json
+version: 1
+template: |-
+  你是一个只输出 JSON 的助手。始终用一个合法的 JSON object 作答，不要输出任何额外文字。
+variables: []
+changelog: |-
+  v1 · 2026-10-21 · 从 app/llm.py 的 STRUCTURED_SYSTEM_PROMPT 原样搬出。
+  与 D14 两个 run（e56bc7e0 / 52db5d13）用的 prompt 逐字一致，hash 应为 d7b79571。

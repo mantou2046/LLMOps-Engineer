@@ -54,6 +54,7 @@ from tenacity import (
 )
 
 import observability
+import prompts
 
 log = logging.getLogger("llmops.llm")
 
@@ -198,6 +199,10 @@ class ChatOutcome:
     degraded: bool = False
     # 降级前的原始档位名（未降级时为 None），便于排查「这单本该走谁」。
     degraded_from: str | None = None
+
+    # W3 D16：本次请求用的 prompt 版本与内容指纹（供响应头 / trace 回显）
+    prompt_version: str = ""
+    prompt_hash: str = ""
 
 
 @dataclass
@@ -542,11 +547,17 @@ def sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _prepare(messages: list[dict], structured: bool) -> list[dict]:
-    """拷贝一份 messages，并按需补结构化 system 指令（不修改调用方传入的列表）。"""
+def _prepare(
+    messages: list[dict], structured: bool, system_prompt: str | None = None
+) -> list[dict]:
+    """拷贝一份 messages，并按需补结构化 system 指令（不修改调用方传入的列表）。
+
+    W3 D16：system_prompt 由 app/prompts.py 按 registry 的 label 解析出来；
+    取不到时（回落失败 / 未接入）仍用模块常量兜底，保证行为与接入前一致。
+    """
     payload = [dict(m) for m in messages]
     if structured and not any(m.get("role") == "system" for m in payload):
-        payload.insert(0, {"role": "system", "content": STRUCTURED_SYSTEM_PROMPT})
+        payload.insert(0, {"role": "system", "content": system_prompt or STRUCTURED_SYSTEM_PROMPT})
     return payload
 
 
@@ -570,7 +581,9 @@ def chat(
     request_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     tier = TIERS[tier_name]
     _require_configured(tier)
-    payload = _prepare(messages, structured)
+    # W3 D16：prompt 每请求解析（SDK 侧 60s 缓存）—— 「改 label 下个请求就生效」的前提
+    meta = prompts.load_prompt("structured_json") if structured else None
+    payload = _prepare(messages, structured, meta["template"] if meta else None)
 
     def _once_for(t: Tier) -> tuple[str, dict, str | None]:
         if LLM_MODE == "openai":
@@ -595,6 +608,7 @@ def chat(
         messages=payload,
         structured=structured,
         stream=False,
+        prompt_meta=meta,
     ) as rec:
         degraded = False
         degraded_from: str | None = None
@@ -651,6 +665,8 @@ def chat(
         finish_reason=finish,
         degraded=degraded,
         degraded_from=degraded_from,
+        prompt_version=(f"structured_json@v{meta['version']}" if meta else ""),
+        prompt_hash=(meta["hash"] if meta else ""),
     )
 
 
