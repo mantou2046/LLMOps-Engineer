@@ -935,6 +935,44 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 ---
 
+## DEC-022 · 成熟度自评：现在 L1，目标 L3（2026-10-19 · W3 D13）
+
+**背景**：按 MLOps Zoomcamp 的微软五级成熟度模型（L0 全手动 → L4 监控触发自动重训）给作品集定位。
+
+**选择**：目标定 **L3**（部署可自动化：注册表 + 一键上线/回滚），L4 不做。
+
+**理由**：作品集**已有 L3 的工具**（Helm、dev/prod 双环境、可观测），缺的是 **L2 的实验追踪与 L3 的回滚路径**——差的是流程，不是工具；L4 触发条件不可靠，先证明价值再谈自动化。
+
+**实证**：D13 三组 RMSE——验证集基线 **7.759**；`PU_DO` 组合特征 9.827 → 7.759（降一个量级）；Lasso 11.167 更差。
+
+**复核条件**：W3 实验追踪 / Registry 落地、W6-W7 有真实回流后重评。
+
+---
+
+## DEC-023 · 实验记录的最小充分集（2026-10-20 · W3 D14）
+
+**背景**：run 记到什么程度，才能「三个月后不问人就重放」。
+
+**选择**：快照五件套——**代码版本（git_sha）+ 参数 + 指标 + 产物（模型/预处理器）+ 数据/评估集版本（eval_set_version）**，缺一件就只是日志。
+
+**实证**：同代码同题两轮 p50 差 2.7 倍，只因上游负载不同 → `eval_set_version` 与 `git_sha` 都不可省。
+
+**代价**：每次实验多记两个字段；评估集换版要升版本号，管理成本略增。
+
+---
+
+## DEC-024 · MLflow 与 Langfuse 的分工（2026-10-20 · W3 D14）
+
+**背景**：实验层与请求层两个观测工具都能接，先划清各记哪一半。
+
+**选择**：MLflow 记**一次实验的汇总**（哪版更好、好多少），Langfuse 记**一次请求的链路**（这次为什么慢/贵/错），靠 `prompt_version` / `run_id` 串。
+
+**实证**：追踪脚本强制 `OBSERVABILITY=off`——Langfuse 上报虽异步，但排队/重试抖动会污染 p95，比指标时不能混入。
+
+**代价**：这批 run 在 Langfuse 无对应 trace，「这个 run 的第 3 条为什么花 62 秒」要等 D16 把响应头/trace metadata 接上后才能回答。
+
+---
+
 ## DEC-025 · 模型注册用 alias 不用 stage（2026-10-21 · W3 D15）
 
 **背景**：D15 要把「可部署单元」注册进 Model Registry 并管理版本切换。MLflow 有两种指针机制：stage（Staging / Production 生命周期）与 alias（可任意指向某版本的标签）；stage 自 MLflow 2.9 起已 deprecated。
@@ -954,6 +992,30 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 ---
 
+## DEC-026 · 模型版本与 prompt 版本必须一起管（2026-10-21 · W3 D15）
+
+**背景**：LLM 项目的「可部署单元」不是模型文件，是四元组（prompt 版本 × 模型名 × 采样参数 × 检索配置）。
+
+**选择**：整体注册成一个 Registry 版本（`qa-combo`）；**prompt 原文不另存本地副本，从产出它的 run 的 artifact 里取、sha256 校验后才注册**。
+
+**实证**：
+
+| 环节 | 证据 |
+| --- | --- |
+| 注册闭环 | `qa-combo` v1 = `production`（prompt v0）、v2 = `canary`（v1），按 alias 回读 combo.json 全字段成功 |
+| prompt 绑定 | sha256 前 8 位与 run 记录比对（v0 `d7b79571` / v1 `009c95a5`），对不上拒绝注册 |
+| 血缘双 run | version 指向打包 combo 的 run，tag `source_run_id` 指向产出指标的评估 run（v0→`e56bc7e0`、v1→`52db5d13`） |
+| 按名取用 | `combos.py` 只认 `models:/qa-combo@production`；同一条代码，两个 alias 取到不同 prompt 原文 |
+| 回落可见 | alias 不存在 / Registry 不可达 → `source="local-fallback"` 且 reason 说得出；超时收紧到 3s/1 次重试（默认 90s+） |
+
+**附带决策**：alias **启动时解析 + 回落**（`COMBO_TTL_SECONDS=0`），理由是**一致性不是性能**——一次会话里 prompt 不该中途变；热切换交给 D18 滚动更新。
+
+**代价**：改 prompt 必须走评估 run → 重新注册；D16 把 prompt 抽成 `prompts/.../v1.yaml` 文件后改善（combo.json 结构不变，`prompt_hash` 从字符串 hash 变文件 hash）。
+
+**反模式**：prompt 复制一份到本地（两个真相源，回滚读到新 prompt）；给没跑过评估的组合开 alias（血缘断裂）；静默回落（不给 source/reason）。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
@@ -962,9 +1024,11 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 - [x] 本机无 GPU 时本地推理怎么选（W2 D10）→ 见 DEC-019
 - [x] 为什么生产环境要 PDB 与反亲和（W2 D11）→ 见 DEC-020
 - [x] dev / prod 隔离的边界在哪（W2 D11）→ 见 DEC-021
+- [x] 成熟度自评：现在 L1，目标 L3（W3 D13）→ 见 DEC-022
+- [x] 实验记录的最小充分集（W3 D14）→ 见 DEC-023
+- [x] MLflow 与 Langfuse 的分工（W3 D14）→ 见 DEC-024
 - [x] 模型注册用 alias 不用 stage（W3 D15）→ 见 DEC-025
-- [ ] 模型注册用 alias 不用 stage（W3 D15 · vault 骨架 DEC-025 已起草，结论待乐哥补写后回写本文件并勾选）
-- [ ] 模型版本与 prompt 版本必须一起管（W3 D15 · vault 骨架 DEC-026 已起草，结论待乐哥补写后回写本文件并勾选）
+- [x] 模型版本与 prompt 版本必须一起管（W3 D15）→ 见 DEC-026
 - [ ] prompt 为什么是代码不是配置（W3 · 待记）
 - [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
 - [ ] 语义缓存阈值怎么定（W7 · 待记）
