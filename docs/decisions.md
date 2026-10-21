@@ -935,6 +935,25 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 ---
 
+## DEC-025 · 模型注册用 alias 不用 stage（2026-10-21 · W3 D15）
+
+**背景**：D15 要把「可部署单元」注册进 Model Registry 并管理版本切换。MLflow 有两种指针机制：stage（Staging / Production 生命周期）与 alias（可任意指向某版本的标签）；stage 自 MLflow 2.9 起已 deprecated。
+
+**选择**：用 alias（`production` / `canary` / `champion`），不建 stage。
+
+**理由**：alias 是裸指针——回滚 = 把指针拨回去，金丝雀 = 建第二个指针，全部零代码零部署；stage 把「一条单向流水线」写死在工具里，想表达回滚只能再建一套流水线或手工改 stage。
+
+**实证**：
+
+| 场景 | 证据 |
+| --- | --- |
+| 课程侧 | `taxi-duration`：`champion` 拨 v1→v2→v1，`load_model("models:/taxi-duration@champion")` 全程一行代码；预测 [15.43, 6.49, 15.75, 21.68, 11.02] ↔ [15.33, 6.50, 15.20, 21.47, 10.79] 跟着变、再拨回 |
+| 作品集侧 | `qa-combo`：`production`→v1（prompt v0）/ `canary`→v2（prompt v1）；`combos.py` 同一行 `load_combo`，alias 一拨，system_prompt 从「只输出 JSON」变成「资金与财务问答」 |
+
+**代价**：alias 没有状态机——工具不阻止把 `production` 拨到未 READY 的版本；多 alias 语义靠团队约定。对策：切 alias 走 review / CI，权限与职责管控到人，禁止手工拨。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
@@ -943,6 +962,9 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 - [x] 本机无 GPU 时本地推理怎么选（W2 D10）→ 见 DEC-019
 - [x] 为什么生产环境要 PDB 与反亲和（W2 D11）→ 见 DEC-020
 - [x] dev / prod 隔离的边界在哪（W2 D11）→ 见 DEC-021
+- [x] 模型注册用 alias 不用 stage（W3 D15）→ 见 DEC-025
+- [ ] 模型注册用 alias 不用 stage（W3 D15 · vault 骨架 DEC-025 已起草，结论待乐哥补写后回写本文件并勾选）
+- [ ] 模型版本与 prompt 版本必须一起管（W3 D15 · vault 骨架 DEC-026 已起草，结论待乐哥补写后回写本文件并勾选）
 - [ ] prompt 为什么是代码不是配置（W3 · 待记）
 - [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
 - [ ] 语义缓存阈值怎么定（W7 · 待记）
