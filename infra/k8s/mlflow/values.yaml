@@ -1,0 +1,65 @@
+# =============================================================================
+# mlflow chart 默认值
+# -----------------------------------------------------------------------------
+# 用法：
+#   helm install mlflow ./infra/k8s/mlflow -n mlflow --create-namespace \
+#     -f infra/k8s/mlflow/values-secret.yaml
+#
+# 设计取舍（DEC-028）：
+#   · **独立 chart**，不做 llmops-chart 的子模板 —— MLflow 是基础设施，不是应用的一部分；
+#     应用 chart 的 HPA/PDB/NetworkPolicy 语义对它全都不适用。
+#   · **独立 ns `mlflow`** —— 避开 dev 的 NetworkPolicy；DB 走 FQDN 跨 ns。
+#   · **代理模式**（--serve-artifacts + --artifacts-destination）：客户端不持存储凭据。
+# =============================================================================
+
+image:
+  # 自建镜像：官方 v3.17.1 里没有 psycopg2（实测 ModuleNotFoundError）
+  repository: llmops-mlflow
+  tag: v3.17.1-pg
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# MLflow 默认起 4 个 gunicorn worker，每个都要加载整套 mlflow →
+# 实测 4 worker 在 2Gi limit 下必 OOMKilled（exit 137）。本地演示 2 个足够。
+workers: 2
+
+# ---- 元数据后端（runs / params / metrics / model registry）----
+db:
+  host: postgres.default.svc.cluster.local   # default ns 的 headless svc，跨 ns 必须写全
+  port: 5432
+  name: mlflow
+  user: llmops
+  # ⚠️ 真值不在这里：用 -f values-secret.yaml 注入（该文件被 .gitignore 挡住）
+  password: ""
+
+# ---- artifacts（代理模式：落在这块 PVC 上，客户端只见 mlflow-artifacts:/）----
+artifacts:
+  size: 2Gi
+  storageClassName: standard
+  mountPath: /mlartifacts
+
+# MLflow 3.x 有 Host 白名单（防 DNS rebinding）；走 Ingress 必须把域名加进来，
+# 否则 API 返回 400/403 "Invalid Host header - possible DNS rebinding attack detected"
+server:
+  allowedHosts: "mlflow.llmops.local,mlflow,mlflow.mlflow.svc,mlflow.mlflow.svc.cluster.local,localhost,127.0.0.1"
+
+service:
+  port: 5000
+
+ingress:
+  enabled: true
+  className: nginx
+  host: mlflow.llmops.local
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    # 2 worker 实测常驻 ~1.5Gi；留 1.5Gi 缓冲，避免传 artifact 时 OOM
+    memory: 3Gi
+
+# MLflow server 启动后要连 DB、跑 alembic 迁移，给足启动时间
+startupSeconds: 120

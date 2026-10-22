@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    # PVC 是 RWO，滚动更新会出现两个 pod 抢同一块盘 → 用 Recreate
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mlflow
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mlflow
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # local-path 的目录默认 root 所有；fsGroup 让 kubelet 把挂载点改成 group 可写
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mlflow
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # ⚠️ 官方镜像 ENTRYPOINT 为空、CMD 是 python3 —— 不写 command 的话
+          #    args 的第一项会被当成可执行文件（报 exec: "server" not found）
+          command: ["mlflow"]
+          args:
+            - server
+            - --host=0.0.0.0
+            - --port={{ .Values.service.port }}
+            # k8s 会在 args 里展开 $(VAR)；密码从 Secret 注入，不落 manifest
+            # ⚠️ SQLAlchemy 2.1 起 `postgresql://` 默认走 psycopg3；我们装的是 psycopg2，
+            #    所以必须显式写 `postgresql+psycopg2://`，否则报 ModuleNotFoundError: psycopg
+            - --backend-store-uri=postgresql+psycopg2://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)
+            # 代理模式：artifact 落在这块 PVC 上，客户端用 mlflow-artifacts:/ 访问
+            - --artifacts-destination={{ .Values.artifacts.mountPath }}
+            - --serve-artifacts
+            # 默认 4 个 worker 在 2Gi limit 下会 OOMKilled
+            - --workers={{ .Values.workers }}
+          env:
+            # 3.x 的 Host 白名单；不加的话走 Ingress 会 400 Invalid Host header
+            - name: MLFLOW_SERVER_ALLOWED_HOSTS
+              value: {{ .Values.server.allowedHosts | quote }}
+            - name: DB_HOST
+              value: {{ .Values.db.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.db.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.db.name | quote }}
+            - name: DB_USER
+              value: {{ .Values.db.user | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-db
+                  key: POSTGRES_PASSWORD
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          # 首次启动要跑 alembic 建表，给足启动预算
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 4
+            failureThreshold: {{ div (int .Values.startupSeconds) 4 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: artifacts
+              mountPath: {{ .Values.artifacts.mountPath }}
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-artifacts

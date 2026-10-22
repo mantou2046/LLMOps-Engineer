@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-artifacts
+  labels:
+    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.artifacts.storageClassName }}
+  resources:
+    requests:
+      storage: {{ .Values.artifacts.size }}
