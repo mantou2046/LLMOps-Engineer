@@ -1041,6 +1041,31 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 ---
 
+## DEC-028 · MLflow 独立 chart 与独立 ns，日常走本地、演示走集群（2026-10-22 · W3 D18）
+
+**背景**：tracking server 要进 K8s，但它既不是「我的应用」，也不该和应用的扩缩容策略绑在一起。
+
+**选择（四层）**：① **独立 chart** `infra/k8s/mlflow/`（不做 `llmops-chart` 子模板）；② **独立 ns `mlflow`**（避开 dev 的 NetworkPolicy，DB 走 FQDN 跨 ns）；③ artifacts 用**代理模式**（`--serve-artifacts` + `--artifacts-destination`，客户端不持存储凭据）；④ **A 日常本地 / B 演示集群**（用频次决定默认值）。
+
+**实证**：
+
+| 环节 | 证据 |
+| --- | --- |
+| 部署 | ns `mlflow`：Deployment 1/1 Running（0 restarts）、PVC 2Gi Bound、Service 5000、Ingress `mlflow.llmops.local` |
+| 后端 | Postgres `mlflow` 库，`alembic_version` 等表由迁移自动建好 |
+| 代理模式 | 实验的 `artifact_location` = `mlflow-artifacts:/1`；artifact 落 `/mlartifacts/1/<run>/artifacts/note.txt` |
+| 持久性 | Pod 多次重启后 artifact 仍在（PVC 生效） |
+| 通路 | Pod 内 /health 200；**走 Ingress** /health 200、API 200 |
+| 非 root | `runAsUser/fsGroup=1000` 下写入成功，不必退回 root |
+
+**五个坑**（详见 `infra/k8s/mlflow/README.md`）：官方镜像 ENTRYPOINT 为空（要 `command: ["mlflow"]`）／镜像无 psycopg2（自建镜像）／SQLAlchemy 2.1 把 `postgresql://` 当 psycopg3（写 `postgresql+psycopg2://`）／默认 4 worker 在 2Gi 下 OOMKilled（`--workers=2` + 3Gi）／MLflow 3.x Host 白名单（`MLFLOW_SERVER_ALLOWED_HOSTS`）。
+
+**代价**：两套环境数据不共享（演示前重跑关键实验）；B 依赖 hosts 与 kind 常驻；自建镜像要随官方版本重建；密码在两处出现（由脚本生成，不手抄、不入库）。
+
+**反模式**：把 MLflow 塞进应用 chart（连带重启、HPA 语义错配）；SQLite 挂 PVC 跑多副本（必然坏库）；DB 密码写 `values.yaml` 提交；把演示环境当日常用（摩擦会让人绕开实验追踪）。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
