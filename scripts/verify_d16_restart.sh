@@ -41,15 +41,27 @@ else
 fi
 
 # ---------- 1. 打一发 /chat，取响应头 ----------
-# 响应头直接读进变量（不落临时文件，避免 Windows 上 rm 触发 safe-delete 噪音）
-HDRS=$(curl --noproxy '*' -s -D - -o /dev/null --max-time 120 \
+# 取「状态行 + 响应头 + 响应体」全文（不落临时文件，避免 Windows safe-delete 噪音）
+RESP=$(curl --noproxy '*' -s -i --max-time 180 \
   -X POST "${BASE}/chat" \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"银行回单和到账通知有什么区别？（D16 重启验证）"}],"structured":true}' || true)
 
-VER=$(printf '%s' "$HDRS"  | grep -i '^x-prompt-version:'     | tr -d '\r' | awk '{print $2}')
-HASH=$(printf '%s' "$HDRS" | grep -i '^x-prompt-hash:'        | tr -d '\r' | awk '{print $2}')
-UP=$(printf '%s' "$HDRS"   | grep -i '^x-upstream-attempts:'  | tr -d '\r' | awk '{print $2}')
+STATUS=$(printf '%s' "$RESP" | head -1 | tr -d '\r')
+VER=$(printf '%s' "$RESP"  | grep -i '^x-prompt-version:'     | tr -d '\r' | awk '{print $2}')
+HASH=$(printf '%s' "$RESP" | grep -i '^x-prompt-hash:'        | tr -d '\r' | awk '{print $2}')
+UP=$(printf '%s' "$RESP"   | grep -i '^x-upstream-attempts:'  | tr -d '\r' | awk '{print $2}')
+BODY=$(printf '%s' "$RESP" | sed -n '/^\r*$/,$p' | tail -n +2 | head -c 300)
+
+echo
+if printf '%s' "$STATUS" | grep -q ' 200 '; then
+  ok "POST /chat → ${STATUS}"
+else
+  bad "POST /chat → ${STATUS:-（无响应）}"
+  [ -n "${BODY:-}" ] && info "响应体：${BODY}"
+  info "502/500 时错误响应不带版本头——这是上游问题，不是代码问题；等几秒重跑本脚本"
+  info "若状态是 404/405：服务可能是旧的，或端口上跑的不是这个应用"
+fi
 
 echo
 if [ -n "${VER:-}" ]; then
