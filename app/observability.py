@@ -33,6 +33,7 @@ import logging
 import os
 import time
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Iterator
 
 log = logging.getLogger("llmops.observability")
@@ -40,6 +41,19 @@ log = logging.getLogger("llmops.observability")
 # ---------------------------------------------------------------------------
 # 开关与配置
 # ---------------------------------------------------------------------------
+# ⚠️ 2026-10-22 实测修正：本模块**自己加载 .env**。
+#    原先是依赖 `import prompts` 的副作用来加载 .env，但导入顺序是
+#    main → llm → observability（第 44 行读 OBSERVABILITY），而 prompts 在 llm 里
+#    排在 observability 之后 → 直接起服务时 `.env` 里的 OBSERVABILITY=langfuse
+#    **读不到**，mode 落成 off，一条 trace 都不发（现象：Langfuse 里只有测试脚本的 trace，
+#    走 HTTP 的请求全没有）。load_dotenv 默认不覆盖已有变量，容器注入无副作用。
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+except ImportError:
+    pass
+
 # off / langfuse / log
 OBSERVABILITY = os.getenv("OBSERVABILITY", "off").strip().lower() or "off"
 
