@@ -45,7 +45,10 @@ fi
 RESP=$(curl --noproxy '*' -s -i --max-time 180 \
   -X POST "${BASE}/chat" \
   -H 'Content-Type: application/json' \
-  -d '{"messages":[{"role":"user","content":"银行回单和到账通知有什么区别？（D16 重启验证）"}],"structured":true}' || true)
+  -d '{"messages":[{"role":"user","content":"ping d16 restart check"}],"structured":true}' || true)
+# ⚠️ payload 故意用纯 ASCII：Windows 控制台若为 GBK(chcp 936)，中文会被转成 GBK 字节，
+#    服务端按 UTF-8 解码失败 → FastAPI 直接回 400，且不产生 chat span（现象：trace 里只有
+#    `POST /chat` 一条、status_code=400、无 chat.primary generation）。2026-10-22 实踩。
 
 STATUS=$(printf '%s' "$RESP" | head -1 | tr -d '\r')
 VER=$(printf '%s' "$RESP"  | grep -i '^x-prompt-version:'     | tr -d '\r' | awk '{print $2}')
@@ -61,6 +64,7 @@ else
   [ -n "${BODY:-}" ] && info "响应体：${BODY}"
   info "502/500 时错误响应不带版本头——这是上游问题，不是代码问题；等几秒重跑本脚本"
   info "若状态是 404/405：服务可能是旧的，或端口上跑的不是这个应用"
+  info "若是 400：多为请求体编码问题（GBK 控制台把中文弄坏）——本脚本已用纯 ASCII payload，仍 400 请查是否手工 curl 带了中文"
 fi
 
 echo
