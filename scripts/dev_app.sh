@@ -57,8 +57,11 @@ echo " 交互文档            = http://${HOST}:${PORT}/docs"
 echo "──────────────────────────────────────────────"
 
 # 2) 清代理 + 3) 进 app/ 起服务
+# ⚠️ 2026-10-23：原来是 `exec env -u HTTP_PROXY ... "$PY" -m uvicorn ...`，
+#    在部分交互终端（Git Bash/mintty）里会打印完 banner 后**静默退出**（无输出、无进程、
+#    退出码非 0），而同一台机器上直接 `"$PY" -m uvicorn ...` 正常。
+#    改为先 unset 再 exec，少一层进程，行为与直接调用一致（已实测可起）。
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
+export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
 cd "$REPO_ROOT/app"
-exec env \
-  -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-  NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
-  "$PY" -m uvicorn main:app --host "$HOST" --port "$PORT"
+exec "$PY" -m uvicorn main:app --host "$HOST" --port "$PORT"
