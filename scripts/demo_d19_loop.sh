@@ -277,6 +277,8 @@ echo "--- 跑「线上现状」（yaml v1 / d7b79571）---"
   --tag "yaml_identity=structured_json@v1:d7b79571" --tag demo=d19 \
   || { echo "$ERR v0 跑挂，看上面输出（常见原因：max_tokens 太小被截断 / 上游故障）"; exit 1; }
 echo
+echo "[info] 等 70s 让上游免费额度限流窗口（20 次/分钟）回落，避免 v1 评估被 429 打挂（2026-10-24 实测：v0+v1 共 22 次连发超 20/min 上限）"
+sleep 70
 echo "--- 跑「发布候选」（yaml v2 / 009c95a5）---"
 "$PY" scripts/track_prompt_run.py --prompt-version v1 --max-tokens 1024 \
   --tag "yaml_identity=structured_json@v2:009c95a5" --tag demo=d19 \
