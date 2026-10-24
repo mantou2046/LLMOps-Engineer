@@ -26,6 +26,10 @@
 # =============================================================================
 set -uo pipefail
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+# GBK 终端（中文 Windows 默认 936 代码页）无法编码 MLflow 结束时打印的 🏃 emoji，
+# 会抛 UnicodeEncodeError 把脚本整段中止（2026-10-24 实测踩坑）。
+# 开启 Python UTF-8 模式让 stdout/stderr 走 UTF-8，emoji 与中文都不炸。
+export PYTHONUTF8=1
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COURSE_REPO="${COURSE_REPO:-/e/Projects/Dev/mlops-zoomcamp}"
