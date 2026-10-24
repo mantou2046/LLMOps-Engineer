@@ -82,6 +82,7 @@ _PRICING: dict[str, tuple[float, float]] = {
     "o4-mini": (1.10, 4.40),
     "deepseek-chat": (0.27, 1.10),
     "deepseek-reasoner": (0.55, 2.19),
+    "deepseek-v4-flash": (0.14, 0.28),  # DeepSeek 官方 API 定价：cache-miss 输入 $0.14 + 输出 $0.28 / 1M tokens；2026-10-24 核对 api-docs.deepseek.com
     "qwen-plus": (0.40, 1.20),
     "qwen-turbo": (0.05, 0.20),
     "claude-3-5-sonnet": (3.00, 15.00),
