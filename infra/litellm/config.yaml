@@ -6,6 +6,10 @@
 #
 # ⚠️ 端口用 4001 不用 4000：本机 4000 被「AMD 免费模型可用度监控」占着。
 #
+# ⚠️ 本文件含中文注释（UTF-8）。LiteLLM 读它时用 `open()` 不指定 encoding，
+#    中文 Windows 下默认 cp936 → 会崩 `UnicodeDecodeError: 'gbk' codec can't decode`。
+#    起之前必须 `$env:PYTHONUTF8 = "1"`（`scripts/load_env.ps1` 已替你设好）。
+#
 # 五块顶层：model_list / router_settings / litellm_settings / general_settings
 #            （第五块 environment_variables 这里不用，密钥统一走 .env）
 # =============================================================================
