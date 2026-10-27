@@ -1,0 +1,68 @@
+# =============================================================================
+# LiteLLM 网关配置 —— W4 D5
+# -----------------------------------------------------------------------------
+# 起法（仓库根）：
+#   D:\python314\Scripts\litellm.exe --config infra/litellm/config.yaml --port 4001
+#
+# ⚠️ 端口用 4001 不用 4000：本机 4000 被「AMD 免费模型可用度监控」占着。
+#
+# 五块顶层：model_list / router_settings / litellm_settings / general_settings
+#            （第五块 environment_variables 这里不用，密钥统一走 .env）
+# =============================================================================
+
+model_list:
+  # ① 主模型：复杂问题走这条（应用侧看到的别名就是 primary）
+  - model_name: primary
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: os.environ/LLM_PRIMARY_BASE_URL
+      api_key: os.environ/LLM_PRIMARY_API_KEY
+      rpm: 60
+
+  # ② 便宜模型：简单问题分流（同一个上游，换一个更轻的 model id）
+  - model_name: cheap
+    litellm_params:
+      model: openai/deepseek-v4-flash-0731
+      api_base: os.environ/LLM_PRIMARY_BASE_URL
+      api_key: os.environ/LLM_PRIMARY_API_KEY
+      rpm: 60
+
+  # ③ 备用模型：primary 重试耗尽后自动切过来（fallbacks 的目标）
+  #    用上游的 auto 槽位 —— 它自己会挑一个当前可用的模型，
+  #    等于「连备用也是个会挑的」，故障域比写死一个 model id 更宽。
+  #
+  #    ⚠️ api_base 故意用**独立变量** LLM_BACKUP_BASE_URL，不复用 primary 的。
+  #    否则演示「primary 挂了」时只要把 LLM_PRIMARY_BASE_URL 改坏，
+  #    backup 会跟着一起坏 —— fallback 就永远不可能成功。
+  #    生产上这两条本来就该是不同厂商，独立变量也是对的。
+  - model_name: backup
+    litellm_params:
+      model: openai/auto
+      api_base: os.environ/LLM_BACKUP_BASE_URL
+      api_key: os.environ/LLM_BACKUP_API_KEY
+      rpm: 60
+
+router_settings:
+  routing_strategy: simple-shuffle   # 同一 model_name 多部署时的挑法；单部署时无感
+  num_retries: 1                     # 同一部署内先重试 1 次，仍失败才走 fallbacks
+  timeout: 120                       # 上游首包慢（冷启动 20~30s），别设太紧
+  allowed_fails: 3                   # 连续失败几次进入 cooldown
+  cooldown_time: 30                  # cooldown 期间跳过这个部署
+
+litellm_settings:
+  # ---- 故障转移：先 retry，后 fallback ----
+  fallbacks:
+    - primary: ["backup"]
+    - cheap: ["backup"]
+
+  # ---- 缓存（第 1 层：精确匹配）----
+  # key = 整请求哈希 → 只要 messages / temperature / max_tokens 任一不同就 miss
+  cache: true
+  cache_params:
+    type: redis
+    host: 127.0.0.1
+    port: 6381          # 就是 llmops-redis 容器的映射端口（不是 6379）
+    ttl: 600
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

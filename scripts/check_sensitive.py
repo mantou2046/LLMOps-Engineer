@@ -111,6 +111,11 @@ def is_placeholder(value: str) -> bool:
     v = value.strip().strip("\"'")
     if not v:
         return True
+    # LiteLLM / 类似网关配置的「引用环境变量」写法：api_key: os.environ/LLM_PRIMARY_API_KEY
+    # 值本身是**变量名**不是秘密，真实凭据不会被写成 os.environ/xxx。
+    # 背景（2026-10-27 · W4 D5）：infra/litellm/config.yaml 里三处 api_key 全被误报。
+    if v.startswith("os.environ/"):
+        return True
     if "${" in v or "{{" in v or "<" in v:      # 未展开的模板标记
         return True
     # 函数调用 / 表达式形态：值里出现 `(` 说明这是**参数传递或取值表达式**，
