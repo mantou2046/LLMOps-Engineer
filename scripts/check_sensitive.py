@@ -257,10 +257,12 @@ def scan_file(p: Path, patterns: list[tuple[str, re.Pattern[str]]]) -> list[str]
             #    判据：值若真等于键名，语义上就不可能是秘密 ——
             #    没有谁的 API key 会长成字面的那个键名。
             #    ⚠️ 注释里别写出等号两边的原文：本文件也会被自己扫（第一版注释就自伤过一次）。
+            #    ⚠️ 2026-10-27（W4 D4）：KV 的值字符类不排除右括号，所以「同名形参传参」写在函数调用里
+            #    会被多捕获一个右括号，等值判断因此失效、照样误报。比较前先把尾部的括号 / 分隔符剥掉。
             m = KV.search(line)
             if (
                 m
-                and m.group(2).strip() != m.group(1).strip()
+                and m.group(2).strip().rstrip(")]}>.,:;") != m.group(1).strip()
                 and not is_placeholder(m.group(2))
                 and not _KEY_IS_REF.match(m.group(1).strip())
             ):
