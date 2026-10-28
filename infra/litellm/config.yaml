@@ -16,17 +16,36 @@
 
 model_list:
   # ① 主模型：复杂问题走这条（应用侧看到的别名就是 primary）
+  #
+  #    ⚠️ 2026-10-28 12:58 临时改动：`deepseek-v4-flash` 被免费池 **429**
+  #    （"All models exhausted"，实测每条 primary 都先失败再 fallback 到 backup，
+  #     三轮探针一次缓存都没命中，token 数变成 144/153/219 那一串备用模型指纹）。
+  #    临时指向当前可用的 `qwen3.5-397b`（实测 200 / 2.75s）。
+  #    **等 deepseek-v4-flash 限流恢复后改回 `openai/deepseek-v4-flash`。**
   - model_name: primary
     litellm_params:
-      model: openai/deepseek-v4-flash
+      model: openai/qwen3.5-397b
       api_base: os.environ/LLM_PRIMARY_BASE_URL
       api_key: os.environ/LLM_PRIMARY_API_KEY
       rpm: 60
 
   # ② 便宜模型：简单问题分流（同一个上游，换一个更轻的 model id）
+  #
+  #    ⚠️ 2026-10-28（W4 D6）改过目标：原先是 deepseek-v4-flash-0731，
+  #    上游 `/v1/models` 把它标成 `available: false, unavailable_reason: "no_key"`
+  #    → 每个 cheap 请求都先失败一次再 fallback 到 backup，
+  #      表现为「明明走的是便宜档，却每条都慢 2~3 秒，且 model-group 永远是 backup」。
+  #    换成当前可用的 gemini-3.5-flash-lite（实测 200 / 1.26s）。
+  #    **这正是网关的价值**：换目标只改这一行，应用代码一行不动。
+  #    判据：改前先跑 `curl .../v1/models` 看 available，别信别名配了就一定通。
+  #
+  #    ⚠️ 2026-10-28 12:49 临时改动：`gemini-3.5-flash-lite` 也被免费池限流（429
+  #    "All models exhausted"），整轮请求全掉到 backup。临时指向还能通的
+  #    `gemini-flash-lite`（实测 200 / 1.54s）。
+  #    **等 3.5-flash-lite 限流恢复后改回上一行**——这两个是不同型号，别长期混用。
   - model_name: cheap
     litellm_params:
-      model: openai/deepseek-v4-flash-0731
+      model: openai/gemini-flash-lite
       api_base: os.environ/LLM_PRIMARY_BASE_URL
       api_key: os.environ/LLM_PRIMARY_API_KEY
       rpm: 60

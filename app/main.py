@@ -47,6 +47,7 @@ from pydantic import BaseModel, Field
 
 import llm
 import observability
+import routing
 from llm import ChatStream, UpstreamError, sse
 
 log = logging.getLogger("llmops.api")
@@ -248,12 +249,20 @@ class Message(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    """POST /chat 请求体 —— 四个业务字段正好对上 W2 D8 的四项「做」。"""
+    """POST /chat 请求体 —— 四个业务字段正好对上 W2 D8 的四项「做」。
+
+    W4 D6：`model` 多了 `auto` 且**改成默认值** —— 调用方不用关心档位，
+    由 app/routing.py 按规则判（structured / 长度 / 多轮 / 关键词 / 引用材料）。
+    显式传 `primary` / `cheap` 仍然有效且**优先于规则**（评估脚本要固定档位对照）。
+    """
 
     messages: list[Message] = Field(..., min_length=1, description="对话历史，至少一条")
     stream: bool = Field(default=False, description="true → SSE 流式响应；false → 一次性 JSON")
     structured: bool = Field(default=False, description="true → 要求上游输出单个 JSON 对象（response_format=json_object）")
-    model: Literal["primary", "cheap"] = Field(default="primary", description="模型档位：primary=主模型，cheap=便宜分流模型")
+    model: Literal["auto", "primary", "cheap"] = Field(
+        default="auto",
+        description="auto=按规则分流（默认）；primary=强制主模型；cheap=强制便宜模型",
+    )
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_tokens: int | None = Field(default=1024, ge=1, le=8192)
 
@@ -282,6 +291,21 @@ def _degraded_headers(degraded: bool, degraded_from: str | None) -> dict[str, st
     return headers
 
 
+def _route_headers(decision: routing.RouteDecision) -> dict[str, str]:
+    """W4 D6：分流结论上头 —— 验收「哪些请求走了便宜模型」的响应侧证据。
+
+    ⚠️ 响应头只能是 ASCII（HTTP 头按 latin-1 编码，中文会直接抛
+       UnicodeEncodeError，请求变 500）。所以这里只放 ASCII 信号码
+       （structured / len>=120 / turns=3 / kw=2 / ref / simple），
+       中文说明只进 body 与日志。
+    """
+    return {
+        "X-Route-Tier": decision.tier,
+        "X-Route-Score": str(decision.score),
+        "X-Route-Signals": ",".join(decision.signals),
+    }
+
+
 def _chat_502(exc: UpstreamError) -> HTTPException:
     """上游故障统一转 502 —— 语义是「我们没问题，上游有问题」，
     与 500「我们自己的问题」区分开，监控告警该分流处理。"""
@@ -293,18 +317,34 @@ def _chat_502(exc: UpstreamError) -> HTTPException:
 
 @app.post("/chat", tags=["llm"])
 def chat(req: ChatRequest) -> Response:
-    """调上游模型。策略在 app/llm.py；这里只做协议与错误翻译。"""
-    log.info(
-        "POST /chat stream=%s structured=%s tier=%s messages=%d",
-        req.stream, req.structured, req.model, len(req.messages),
-    )
+    """调上游模型。策略在 app/llm.py；这里只做协议与错误翻译。
+
+    W4 D6：`model=auto`（默认）时先由 app/routing.py 判档，判完再照常调用。
+    分流结论三处回显 —— 响应头（X-Route-*）/ body（routing）/ 日志（route=）。
+    """
     payload = [m.model_dump() for m in req.messages]
+
+    decision = routing.decide(
+        payload,
+        structured=req.structured,
+        explicit=None if req.model == "auto" else req.model,
+    )
+    log.info(
+        "POST /chat stream=%s structured=%s model=%s → route=%s score=%d signals=%s | %s",
+        req.stream,
+        req.structured,
+        req.model,
+        decision.tier,
+        decision.score,
+        ",".join(decision.signals),
+        decision.detail,
+    )
 
     if req.stream:
         try:
             stream = llm.open_stream(
                 messages=payload,
-                tier_name=req.model,
+                tier_name=decision.tier,
                 structured=req.structured,
                 temperature=req.temperature,
                 max_tokens=req.max_tokens,
@@ -318,6 +358,7 @@ def chat(req: ChatRequest) -> Response:
             headers={
                 **_attempt_headers(stream.attempts, stream.retries),
                 **_degraded_headers(stream.degraded, stream.degraded_from),
+                **_route_headers(decision),
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
             },
@@ -326,7 +367,7 @@ def chat(req: ChatRequest) -> Response:
     try:
         out = llm.chat(
             messages=payload,
-            tier_name=req.model,
+            tier_name=decision.tier,
             structured=req.structured,
             temperature=req.temperature,
             max_tokens=req.max_tokens,
@@ -351,9 +392,12 @@ def chat(req: ChatRequest) -> Response:
             # W2 D10：是否走了 fallback 降级（primary 重试耗尽后切备成功）
             "degraded": out.degraded,
             "degraded_from": out.degraded_from,
+            # W4 D6：这条请求凭什么判成这个档位（可回放的分流现场）
+            "routing": decision.as_dict(),
         },
         headers={
             **_attempt_headers(out.attempts, out.retries, out.degraded, out.degraded_from),
+            **_route_headers(decision),
             # W3 D16：线上到底是哪版 prompt —— curl -i 一眼可见
             **(
                 {"X-Prompt-Version": out.prompt_version, "X-Prompt-Hash": out.prompt_hash}

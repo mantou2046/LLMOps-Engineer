@@ -96,3 +96,8 @@ tmp/
 # observatory/screens/ 下 *.js / *.py 是 Playwright 联调与竞态测试脚本，要提交；
 # 它们生成的 PNG 截图是一次性验证产物，不入库（本地重建即可）。
 observatory/screens/*.png
+
+# ---- 评估 / 探针的输出产物（脚本入库，结果不入库）----
+# evals/out/ 下是 batch_score.py / route_probe.py 每次跑出来的 parquet / csv，
+# 属于「跑一遍就有」的中间产物；结论写进笔记与决策日志，原始表格不入库。
+evals/out/
