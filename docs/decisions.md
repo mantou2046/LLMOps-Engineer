@@ -1014,6 +1014,8 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 **反模式**：prompt 复制一份到本地（两个真相源，回滚读到新 prompt）；给没跑过评估的组合开 alias（血缘断裂）；静默回落（不给 source/reason）。
 
+**面试口径**：prompt 是代码，不是配置。代码有版本管理可评估、可回归。它进版本（`prompt_version` + `prompt_hash`）、走评估（先有评估 run 才有 combo）、和模型参数绑成一个可部署单元注册进 Registry；线上只引用 `models:/qa-combo@production` 一个名字，回滚就是把这个名字拨回上一个版本——**模型和 prompt 一起回，不存在半新半旧**。而且 prompt 原文存在 Registry artifact 里、注册时 sha256 校验，回滚读到的一定是当初评估过的那一份，改一个字符都注册不上去。
+
 ---
 
 ## DEC-027 · prompt 以 git 为真源，registry 只做发布指针（2026-10-21 · W3 D16）
