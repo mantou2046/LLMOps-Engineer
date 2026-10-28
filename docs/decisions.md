@@ -1214,6 +1214,7 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 2. **重试与降级只留一层，那一层是网关**：应用侧 `LLM_MAX_ATTEMPTS=1` + `LLM_FALLBACK_ENABLED=false`。
 3. **应用连网关一律写 `127.0.0.1`，不写 `localhost`**（`scripts/use_gateway.ps1` 强制替换）。
 4. 应用侧业务代码**零改动**接入网关：只换会话环境变量（`use_gateway.ps1`），`/chat` 只多了一个 `model=auto` 的默认值和三个回显位（响应头 `X-Route-*` / body `routing` / 日志 `route=`）。
+5. **别名背后用哪个模型不是永久契约**：当天换了三次目标（`deepseek-v4-flash-0731` 上游 `no_key` → `gemini-3.5-flash-lite` → 又被 429 → `gemini-flash-lite`；`deepseek-v4-flash` → `qwen3.5-397b`），**应用代码始终零改动**。模型选型随上游可用性调整，不需要走应用发版。
 
 **实证**（2026-10-28 本机；LiteLLM 1.106.4 / 4001；应用 8000；上游 31415）
 
