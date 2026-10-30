@@ -51,8 +51,14 @@ if [ ! -f .env ]; then
   exit 1
 fi
 ok ".env 存在"
-# shellcheck disable=SC1091
-set -a; . ./.env; set +a
+# shellcheck disable=SC1090
+# ⚠️ 先 tr -d '\r' 剥 CRLF：本机 .env 是 CRLF 存的，直接 source 会满屏
+#    `./.env: line N: $'\r': command not found`，且值尾带 \r。
+ENV_TMP="/tmp/llmops_env.$$"
+trap 'rm -f "$ENV_TMP"' EXIT
+tr -d '\r' < ./.env > "$ENV_TMP"
+set -a; . "$ENV_TMP"; set +a
+rm -f "$ENV_TMP"
 if [ -z "${POSTGRES_PASSWORD:-}" ]; then
   bad ".env 里 POSTGRES_PASSWORD 为空，请填写"
   exit 1

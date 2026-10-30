@@ -51,7 +51,14 @@ OK="[OK]"; WARN="[!!]"; ERR="[XX]"   # GBK 控制台下 emoji 会乱码，用 AS
 
 cd "$REPO_ROOT" || exit 1
 [ -f .env ] || { echo "$ERR 缺少 .env（从 .env.example 复制并填好 LLM_* / LANGFUSE_*）"; exit 1; }
-set -a; . ./.env; set +a   # app 代码不自己读 .env，本地必须显式 source
+# app 代码不自己读 .env，本地必须显式 source。
+# ⚠️ 先 tr -d '\r' 剥 CRLF：本机 .env 是 CRLF 存的，直接 source 会满屏
+#    `./.env: line N: $'\r': command not found`，且值尾带 \r（"openai\r"）。
+ENV_TMP="/tmp/llmops_env.$$"
+trap 'rm -f "$ENV_TMP"' EXIT
+tr -d '\r' < ./.env > "$ENV_TMP"
+set -a; . "$ENV_TMP"; set +a
+rm -f "$ENV_TMP"
 
 banner() { echo; echo "======== $* ========"; }
 pause() {
