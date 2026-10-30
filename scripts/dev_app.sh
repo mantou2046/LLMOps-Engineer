@@ -31,6 +31,18 @@ export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# ⚠️ 2026-10-30：本机 PowerShell 里敲 `bash` 可能进的是 **WSL** 而不是 Git Bash。
+#    WSL 里 `C:/...`、`/c/...`、`D:/...` 这些 Windows 路径全部不存在，
+#    表现为一串「未找到解释器 / .env: $'\r' / exec: python: not found」。
+#    与其猜路径，不如直接指路：WSL 用户请改用 PowerShell 原生启动器。
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  echo "⚠️ 当前是 WSL bash（/proc/version 含 microsoft）"
+  echo "   Windows 下的 venv 与 D:\\python314 在这个 bash 里不可见，脚本无法找到解释器。"
+  echo "   请在 PowerShell 窗口里跑： .\\scripts\\dev_app.ps1"
+  echo "   或先切到 Git Bash 再跑本脚本（`where.exe bash` 可以看你当前用的是哪个）。"
+  exit 1
+fi
+
 PORT="${PORT:-8000}"
 HOST="${HOST:-127.0.0.1}"
 
