@@ -27,7 +27,8 @@ param(
     [int]$Port = 8000,
     [string]$HostAddr = "127.0.0.1",
     [string]$PyOverride = "",
-    [switch]$Mock
+    [switch]$Mock,
+    [switch]$LoadEndpoint
 )
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -52,6 +53,13 @@ if ($Mock) {
     # 必须放在 load_env 之后 —— 那个脚本会用 .env 的值覆盖会话变量。
     $env:LLM_MODE = "mock"
     $env:OBSERVABILITY = "off"
+}
+
+if ($LoadEndpoint) {
+    # 打开 /work CPU 压测端点（W5 D1 的负载发生器需要一个「可控的慢端点」）。
+    # ⚠️ 默认关闭是对的：一个「帮忙烧 CPU」的端点在生产里就是现成的 DoS 放大器，
+    #    演示/压测时才显式打开（app/main.py 的 ENABLE_LOAD_ENDPOINT 旋钮）。
+    $env:ENABLE_LOAD_ENDPOINT = "1"
 }
 
 # ---- 2) 选解释器 ------------------------------------------------------------
