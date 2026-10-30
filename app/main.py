@@ -27,6 +27,11 @@ W2 D8 补充（服务化）：
   · /chat —— 调上游模型（OpenAI 兼容协议），支持流式（SSE）与结构化输出（JSON mode）
   · 重试 / 指数退避 / 超时 三项策略在 app/llm.py；本文件只管协议与错误翻译
   · /healthz、/readyz —— K8s 惯例的别名入口（原 /health、/ready 保留不动）
+
+W5 D1 补充（监控）：
+  · metrics.install(app) —— 一条中间件把「请求数 / 耗时 / 在飞数」全记下来，
+    /metrics 端点供 Prometheus 抓取。指标定义与设计约束在 app/metrics.py。
+  · 今天**不动业务逻辑**：监控的验收是「能采到数」，不是「加了监控服务变快」。
 """
 
 from __future__ import annotations
@@ -46,6 +51,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import llm
+import metrics
 import observability
 import routing
 from llm import ChatStream, UpstreamError, sse
@@ -135,6 +141,13 @@ app = FastAPI(
     version=APP_VERSION,
     lifespan=_lifespan,
 )
+
+# ---- W5 D1：Prometheus 埋点 + /metrics 端点 ---------------------------------
+# 挂在这里而不是各个路由里手写 inc()：中间件是**唯一**一处能保证「每个请求
+# 都被数到」的地方。在端点里埋，漏一个端点就少一份数据，而且新增端点的人
+# 根本不会想起来补 —— 这类「靠自觉」的埋点，三个月后一定残缺。
+# 三个指标的选型与三条设计约束见 app/metrics.py 文件头。
+metrics.install(app)
 
 
 @app.get("/health", tags=["ops"])

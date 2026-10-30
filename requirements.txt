@@ -37,3 +37,9 @@ langfuse>=2.50,<4.0
 # 一次 prompt 对比 = 一个 run；参数 / 指标 / 产物进同一个 tracking server
 # ⚠️ 只被 scripts/track_prompt_run.py 用到，/chat 服务本体不 import 它
 mlflow>=3,<4
+
+# ---- 监控（W5 D1 接入）----
+# prometheus_client：/metrics 端点与三个 HTTP 指标（见 app/metrics.py）
+# ⚠️ 装它是必需的（/metrics 靠它生成），但**默认不引入任何后台线程** ——
+#    我们用的是「挂到 FastAPI 路由上」的拉模式，不是 start_http_server 的推模式。
+prometheus_client>=0.21,<1.0

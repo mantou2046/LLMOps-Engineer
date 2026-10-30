@@ -1,0 +1,62 @@
+# =============================================================================
+# 监控栈（W5 D1 起）—— 今天只有 Prometheus，D2 加 Grafana
+# -----------------------------------------------------------------------------
+# 为什么单独一个 compose 文件，不并进 infra/compose.yml：
+#   数据库是「应用要连的东西」，监控是「看应用的东西」。两者生命周期不同 ——
+#   清库重建（down -v）时不该顺手把监控历史一起删掉，反之亦然。
+#   文件分开 = 状态分开 = 不会互相误伤。
+#
+# 用法（在仓库根）：
+#   docker compose -f infra/prometheus/compose.yml up -d
+#   curl http://127.0.0.1:9095/-/ready          # 期望 Prometheus Server is Ready.
+#   docker compose -f infra/prometheus/compose.yml down
+# =============================================================================
+
+name: llmops-observability
+
+services:
+  prometheus:
+    # ⚠️ 固定版本，不用 latest：Prometheus 3.x 与 2.x 的 PromQL / 配置有差异，
+    #    半年后重跑要拿到同一个东西。升级是显式动作，不是 `pull` 的副作用。
+    image: prom/prometheus:v3.15.1
+    container_name: llmops-prometheus
+
+    ports:
+      # 只绑回环 —— 监控面板不该暴露到局域网。
+      # ⚠️ 宿主端口用 9095，不是 Prometheus 默认的 9090：
+      #    本机 9090 已被 Langfuse 的 MinIO 占着（`0.0.0.0:9090->9000`），
+      #    照抄 9090 会起不来，报 `bind: address already in use`。
+      #    容器内仍是 9090 —— prometheus.yml 里抓自己的那条 targets 不用改。
+      - "127.0.0.1:9095:9090"
+
+    volumes:
+      # 配置只读挂载：容器里改不了，逼着改仓库里的文件（配置即代码）
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # 时序数据落命名卷：容器删了数据还在，`down` 不等于 `down -v`
+      - promdata:/prometheus
+
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 本地只留 7 天。⚠️ 默认 15 天，学习机上没必要 —— 磁盘满了会静默丢数据
+      - --storage.tsdb.retention.time=7d
+      # 允许 POST /-/reload 热加载配置（改 prometheus.yml 后不用重启容器）
+      - --web.enable-lifecycle
+
+    extra_hosts:
+      # 让 Linux 上的 Docker 也能解析 host.docker.internal（Docker Desktop 自带）。
+      # 不加这行，Linux 用户抓宿主机上的应用会一直 DOWN。
+      - "host.docker.internal:host-gateway"
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  promdata:
+    name: llmops-prometheus-data

@@ -420,7 +420,7 @@ python scripts/check_sensitive.py --all                              # 手动全
 
 ## 进度
 
-> **最后更新：2026-10-28**（每次推进后同步本表，别让它变成装饰品）
+> **最后更新：2026-10-30**（每次推进后同步本表，别让它变成装饰品）
 
 对照学习计划：`E:\Projects\Obsidian\YYDS\01LLMOps-Engineer\`（八周 10/7 → 11/30）
 
@@ -430,11 +430,11 @@ python scripts/check_sensitive.py --all                              # 手动全
 | W2 | 10/12 – 10/18 | K8s 生产化、上云、服务化 + 观测 | ✅ **完成**（D6–D12） | Helm 发布、RBAC 最小权限、PDB + 反亲和、dev/prod 隔离、指数退避重试、Langfuse trace；**阶段一验收 10/18 达成** |
 | W3 | 10/19 – 10/25 | 实验追踪与模型管理 | ✅ **完成**（D13–D19） | MLflow 四条 run（prompt v0/v1 对比，`refusal_rate` 0.0→0.2 两组复现、`format_ok` 恒 1.0）；模型按 alias 注册；prompt 版本化（git 真源）；MLflow 独立 chart 上 K8s；DEC-022~028 |
 | W4 | 10/26 – 11/1 | 编排、部署与网关 | ✅ **完成**（D1–D7，**领先约 3 天**） | Prefect 第一个 flow + RAG 索引重建流水线（增量 + task 级重试，flow 79.51 s / train 占 98.3%）；部署三形态实测（在线 p50 15 ms / 离线 7.4 万行 0.64 s / 不做流式）；离线批量打分 `evals/batch_score.py`（8 并发 1.05 s vs 串行 8.08 s ≈ 7.7×，token 成本四组一位不变）；LiteLLM 网关三别名 + 故障转移（200 vs 去掉 fallbacks 的 5xx，缓存 1161.6→10.3→8.9 ms）；**应用侧规则分流器 `app/routing.py`**（判档 4.8–6.0 µs/次、离线 24 条 12/12 与标注 0 条不符、在线 18 条分流全对且缓存 6/6 命中）；**M3/M4 作业 12 题全答**；DEC-029~033 |
-| W5 | 11/2 – 11/8 | 监控、工程规范与 IaC | ⬜ 未开始 | — |
+| W5 | 11/2 – 11/8 | 监控、工程规范与 IaC | 🟡 **进行中**（D1 ✅，提前于 10/30 开跑） | Prometheus 指标采集打通：`app/metrics.py` 一条中间件装出「请求数 / 耗时 / 在飞数」（**错误数不单独做 counter**）+ `/metrics` 端点；Prometheus v3.15.1 容器抓取（5 s 间隔，单次 8.5 ms / 106 样本 / 10 KB）；五条 PromQL 验通（错误率 **0.2308 = 6/26**）；基数实验 30 个不同 404 路径仍只 **1 条**时序、1000 个 label 值 → **116 KB / 14 ms**；**两个失真实测**：流式请求客户端 1.641 s 而指标只记 0.424 s（只到 TTFB）、双 worker 连抓 6 次读到 5/5/5/7/7/5 |
 | W6 | 11/9 – 11/15 | RAG 与评估（进度落后时优先保） | ⬜ 未开始 | — |
 | W7 | 11/16 – 11/22 | 护栏、成本、微调与 Agent | ⬜ 未开始 | — |
 | W8 | 11/23 – 11/30 | 作品集打包与求职启动 | ⬜ 未开始 | — |
 
-**当前在做**：W5（11/2–11/8）监控、工程规范与 IaC —— Prometheus / Grafana · LLM 专属指标 · 测试与 CI · Terraform 本地 kind IaC。
+**当前在做**：W5（11/2–11/8）监控、工程规范与 IaC —— D1 指标采集已通（Prometheus 抓 `/metrics`，三件套 + 基数实验 + 两个失真实测）；接着 Grafana 看板 / LLM 专属指标 / 测试与 CI / Terraform 本地 kind IaC。
 **W4 已收口**（2026-10-28）：D1–D7 全部完成，周复盘三问与架构图 v3（十二层）已定稿。
 决策日志已累计 **DEC-001 ~ DEC-033**，见 [`docs/decisions.md`](docs/decisions.md)。

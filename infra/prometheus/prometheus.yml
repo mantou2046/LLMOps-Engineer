@@ -1,0 +1,52 @@
+# =============================================================================
+# Prometheus 抓取配置 —— W5 D1
+# -----------------------------------------------------------------------------
+# 这个文件是「Prometheus 该去谁那里拿数」的唯一声明。它自己也该进版本库：
+# 改抓取目标 = 改监控范围，得能被 review（和 D2 的看板 JSON 同一个道理）。
+#
+# 用法（在仓库根）：
+#   docker compose -f infra/prometheus/compose.yml up -d
+#   docker compose -f infra/prometheus/compose.yml logs -f prometheus
+#   docker compose -f infra/prometheus/compose.yml down
+# =============================================================================
+
+global:
+  # 抓取间隔。⚠️ 它同时是**分辨率上限**：间隔 15s，一个持续 10s 的毛刺就永远看不见。
+  # 生产常配 15–30s（因为「基数 × 抓取频率」= 存储与 CPU 成本）；
+  # 本地学习用 5s，改一行代码就能马上在图上看到变化，省掉等待。
+  scrape_interval: 5s
+  # 单次抓取的超时。必须 < scrape_interval，否则两次抓取会重叠、日志里出现
+  # 「context deadline exceeded」而你以为目标挂了。
+  scrape_timeout: 4s
+  # 给所有时序打的外部标签。将来接 Grafana / 联邦 / 远程写时，靠它区分环境。
+  external_labels:
+    env: local
+    project: llmops-engineer
+
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  # 我们的 FastAPI 服务（app/metrics.py 提供的 /metrics）
+  # ---------------------------------------------------------------------------
+  - job_name: llmops-api
+    metrics_path: /metrics
+    static_configs:
+      # ⚠️ 关键一行：Prometheus 跑在容器里，应用跑在**宿主机**上。
+      #    容器里的 127.0.0.1 是容器自己，抓不到宿主机的 8000。
+      #    Docker Desktop（Win/Mac）自带 host.docker.internal 这个名字；
+      #    Linux 上要 compose 里的 extra_hosts 才认（见 compose.yml）。
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          # 自定义标签：多环境 / 多实例时用它分组，别把环境写进指标名里
+          service: llmops-api
+
+  # ---------------------------------------------------------------------------
+  # Prometheus 自己 —— 白送的，且必须有
+  # ---------------------------------------------------------------------------
+  # 为什么必须抓自己：它自己的 CPU / 内存 / 时序数（prometheus_tsdb_head_series）
+  # 是判断「监控系统本身是不是快撑爆了」的唯一依据。
+  # 指标基数失控时，第一个报警的应该是这一条，而不是等它 OOM。
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+        labels:
+          service: prometheus
