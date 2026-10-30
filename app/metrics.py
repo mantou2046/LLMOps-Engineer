@@ -64,9 +64,15 @@ from prometheus_client import (
 # ---------------------------------------------------------------------------
 # ⚠️ 名字前缀统一 llmops_：Prometheus 里指标名是全局命名空间，
 #    不加前缀迟早跟 exporter / 库自带的 process_*、python_* 混在一起分不清归属。
+#
+# ⚠️ HELP 描述一律用**英文**（2026-10-30 实测）：
+#    /metrics 会被各种客户端读取，而本机控制台默认代码页是 936(GBK)，Python 却按
+#    UTF-8 输出 → 中文 HELP 在 PowerShell 里显示成乱码（"请求总数" → "璇锋眰鎬绘暟"）。
+#    指标说明这类「给人看的元数据」写在本文件的注释里；**端点输出保持纯 ASCII**，
+#    任何客户端、任何代码页下都不会乱码。
 _REQUESTS = Counter(
     "llmops_http_requests_total",
-    "HTTP 请求总数",
+    "Total HTTP requests",
     ["method", "route", "status"],
 )
 
@@ -74,14 +80,14 @@ _REQUESTS = Counter(
 # 一条时序的成本 ≈ 桶数，所以别随手铺 30 个桶。
 _DURATION = Histogram(
     "llmops_http_request_duration_seconds",
-    "HTTP 请求耗时（秒）",
+    "HTTP request latency in seconds",
     ["method", "route"],
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
 )
 
 _IN_FLIGHT = Gauge(
     "llmops_http_requests_in_flight",
-    "正在处理中的请求数",
+    "HTTP requests currently in flight",
 )
 
 # 不参与统计的路径。只用精确匹配：/metrics 是唯一一个「被机器高频访问、
