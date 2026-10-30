@@ -13,6 +13,8 @@
   D:\\python314\\python.exe scripts/loadgen.py                    # 默认 20 轮
   D:\\python314\\python.exe scripts/loadgen.py --rounds 40        # 压 40 轮
   D:\\python314\\python.exe scripts/loadgen.py --only /health     # 只打一个端点
+  （Git Bash 下写成 --only=health 或 --only ./health 最稳；
+   脚本内部已防御 MSYS 把 /health 转成 Windows 路径的坑）
 
 ⚠️ 本机代理会拦 127.0.0.1，脚本里已显式绕过（见 _opener）。
 """
@@ -82,7 +84,15 @@ def main() -> int:
         ("/chat", {"messages": [{"role": "user", "content": "用一句话说明什么是监控"}], "max_tokens": 32}),
     ]
     if args.only:
-        plan = [(p, d) for p, d in plan if p.split("?")[0] == args.only]
+        # ⚠️ Git Bash（MSYS）会把 /health 这类参数自动转成 Windows 路径
+        # （实测变成 D:/Program Files/.../PortableGit/health），精确比对会落空。
+        # 防御写法：取末段名字再比，/health、health、D:/.../health 都能命中。
+        key = args.only.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        plan = [(p, d) for p, d in plan if p.split("?")[0].lstrip("/") == key]
+    if not plan:
+        print(f"错误：没有端点匹配 --only={args.only!r}，不发任何请求。"
+              f"可选：/health /ready /work /chat")
+        return 2
 
     opener = _opener()
     lat: dict[str, list[float]] = defaultdict(list)
