@@ -40,6 +40,37 @@ scrape_configs:
           service: llmops-api
 
   # ---------------------------------------------------------------------------
+  # LiteLLM 网关（W5 D3 加）—— LLM 专属指标的唯一来源
+  # ---------------------------------------------------------------------------
+  # 为什么单独一个 job、不并进 llmops-api：
+  #   两者是**不同的进程、不同的指标语义**。应用的 /metrics 记的是「HTTP 请求」，
+  #   网关的 /metrics 记的是「模型调用」（TTFT / 每请求成本 / 缓存命中）。
+  #   混在一个 job 里，`up` 就分不清是「应用挂了」还是「网关挂了」。
+  #
+  # ⚠️ 端口 4001 不是 4000：本机 4000 被「AMD 免费模型可用度监控」占着（见 config.yaml 头注）。
+  # ⚠️ 网关跑在**宿主机**上，容器里的 127.0.0.1 抓不到 → 必须走 host.docker.internal。
+  # ⚠️ 网关的 /metrics 与代理同端口，且默认不鉴权 —— 所以这里不需要 bearer_token。
+  #    但只监听回环（127.0.0.1:4001），别改成 0.0.0.0，否则同网段谁都能读到你的用量与成本。
+  #
+  # ⚠️ 依赖前置：infra/litellm/config.yaml 里必须有 `litellm_settings.callbacks: ["prometheus"]`，
+  #    否则这个 target 永远 DOWN（网关 /metrics 返回 404），报错信息是
+  #    `server returned HTTP status 404 Not Found` —— 看着像路径写错，其实是没开开关。
+  #
+  # ⚠️ metrics_path 末尾那个斜杠**不能省**（2026-11-02 实测）：
+  #    LiteLLM 把指标 app 挂成 Starlette 的 mount，请求 `/metrics` 会先返回
+  #    **307 → /metrics/**。虽然 Prometheus 会跟这个跳转，但每次抓取多一跳、
+  #    日志里留一条 307，排查时容易被当成异常。写全 `/metrics/` 直接 200。
+  # ⚠️ 这个端点在 1.106.4 里**默认要鉴权**，鉴权路径依赖 prisma（要 DB）。
+  #    本机没跑 DB 代理模式 → 必须靠 config.yaml 的
+  #    `require_auth_for_metrics_endpoint: false` 才通，否则永远 401。
+  - job_name: litellm-gateway
+    metrics_path: /metrics/
+    static_configs:
+      - targets: ["host.docker.internal:4001"]
+        labels:
+          service: litellm-gateway
+
+  # ---------------------------------------------------------------------------
   # Prometheus 自己 —— 白送的，且必须有
   # ---------------------------------------------------------------------------
   # 为什么必须抓自己：它自己的 CPU / 内存 / 时序数（prometheus_tsdb_head_series）

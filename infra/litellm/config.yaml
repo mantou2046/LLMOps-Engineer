@@ -64,6 +64,53 @@ model_list:
       api_key: os.environ/LLM_BACKUP_API_KEY
       rpm: 60
 
+  # ---------------------------------------------------------------------------
+  # ④⑤ 本地假上游两档（W5 D3 加）—— 专门用来量 LLM 指标，不是业务模型
+  # ---------------------------------------------------------------------------
+  # 为什么要有这两个：D3 要验证「TTFT / 成本 / 缓存命中」这些指标的口径对不对，
+  # 而验证的前提是**真值已知**。真实上游首包时长不可控、还可能被免费池 429
+  # （W4 D5 实测 429 会伪装成缓存失效 / fallback / token 数异常），
+  # 拿它当基准等于用一把会伸缩的尺子量长度。
+  # 所以指向 scripts/fake_upstream.py：首包固定 300ms、token 数写死 100/50。
+  #
+  # 两档**故意价差 10 倍**：这样「今天成本为什么涨了」有个确定答案 ——
+  # 请求从便宜档挪到贵档，单价差一个数量级，在面板上能一眼看出来。
+  #
+  # ⚠️ 这两条**不参与业务路由**（应用侧 primary/cheap 仍指真实上游），
+  #    只在 D3 手册里直接用 curl 打。上线前删掉这两条即可。
+  #
+  # ⚠️ `model_info` 里的定价是**必须写的**，不是可选美化：
+  #    `openai/fake-model` 不在 LiteLLM 的定价表里（内置表只认 gpt-4o 这类），
+  #    不写 → `litellm_spend_metric` 恒为 0 → 成本面板显示「每请求 $0」，
+  #    看着像「很省钱」，实际是「压根没算」。这个坑见 D3 手册步骤 8。
+  - model_name: local-cheap
+    litellm_params:
+      model: openai/fake-model
+      api_base: os.environ/FAKE_UPSTREAM_BASE_URL
+      api_key: fake-no-key-needed
+    model_info:
+      input_cost_per_token: 0.0000001    # $0.1 / 百万 input token
+      output_cost_per_token: 0.0000002   # $0.2 / 百万 output token
+
+  - model_name: local-primary
+    litellm_params:
+      model: openai/fake-model
+      api_base: os.environ/FAKE_UPSTREAM_BASE_URL
+      api_key: fake-no-key-needed
+    model_info:
+      input_cost_per_token: 0.000001     # 贵 10 倍
+      output_cost_per_token: 0.000002
+
+  # ⑥ 故意打不通的档位（W5 D3 加）—— 唯一用途：造**确定的**错误率
+  # 端口 4011 上什么都不跑，所以每次调用必然连接失败 → 网关重试后仍失败 → 客户端拿到 5xx。
+  # 为什么不用「让假上游按概率返回 500」：概率造出来的错误率每次都不一样，
+  # 手册里就写不出确定数字，也没法对着面板验算。
+  - model_name: local-dead
+    litellm_params:
+      model: openai/fake-model
+      api_base: http://127.0.0.1:4011/v1
+      api_key: fake-no-key-needed
+
 router_settings:
   routing_strategy: simple-shuffle   # 同一 model_name 多部署时的挑法；单部署时无感
   num_retries: 1                     # 同一部署内先重试 1 次，仍失败才走 fallbacks
@@ -72,6 +119,36 @@ router_settings:
   cooldown_time: 30                  # cooldown 期间跳过这个部署
 
 litellm_settings:
+  # ---- 可观测性：把网关自己的指标暴露到 /metrics（W5 D3 加）----
+  # 为什么是网关这层量 TTFT：应用层只量到「响应头就绪」（W5 D1 实测流式请求
+  # 客户端 1.641s、应用直方图只记 0.424s），而 TTFT 是「第一个 token 到达」，
+  # 只有真正跟上游对话的这一层才知道。网关就在那个位置上。
+  #
+  # ⚠️ 这个开关是「挂 /metrics 端点」的唯一开关，不是可选美化：
+  #    LiteLLM 1.106.4 的实现在 proxy_server.py 里监听 success_callback，
+  #    只有回调名里含 "prometheus" 才调 PrometheusLogger._mount_metrics_endpoint()。
+  #    不开 → 网关 4001/metrics 直接 404，Prometheus 那条 job 永远 DOWN。
+  # ⚠️ 端点与网关**同端口**（4001），不是另开一个端口。
+  callbacks: ["prometheus"]
+
+  # ---- 指标端点的鉴权：默认开，本机关掉（W5 D3 实测）----
+  # 1.106.4 的默认值是**开鉴权**（PrometheusAuthMiddleware，安全默认，对的）。
+  # 但那条鉴权路径走的是 `user_api_key_auth` → 需要 prisma 连 DB；
+  # 我们没跑 DB 代理模式（网关只读 yaml）→ 实测报：
+  #     "Unauthorized access to metrics endpoint: No module named 'prisma'"
+  # 这句话会把人引向「去装 prisma」，而真正该做的是选一条鉴权方案。
+  #
+  # 本机选「关掉 + 只监听回环」：
+  #   · compose/启动命令里网关只绑 127.0.0.1:4001，同网段访问不到；
+  #   · 指标里含**每请求成本**和用量，属于要保密的东西 —— 所以这条关掉
+  #     的代价必须靠「只听回环」兜住，**绝不能改成 0.0.0.0**。
+  #
+  # 生产该怎么做（二选一，别照抄本机配置）：
+  #   a) 保留鉴权，给 Prometheus 配 bearer token 文件：
+  #        scrape_configs[].authorization: { type: Bearer, credentials_file: /etc/prom/token }
+  #   b) 网关前面挂反向代理，把 /metrics 只对内网放行，并关掉本开关。
+  require_auth_for_metrics_endpoint: false
+
   # ---- 故障转移：先 retry，后 fallback ----
   fallbacks:
     - primary: ["backup"]

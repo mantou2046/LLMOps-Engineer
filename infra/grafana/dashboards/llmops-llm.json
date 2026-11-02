@@ -1,0 +1,315 @@
+{
+  "uid": "llmops-llm",
+  "title": "LLMOps · LLM 专属指标",
+  "tags": ["llmops", "w5", "llm"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "网关抓取",
+      "description": "up{job=\"litellm-gateway\"}：1 = 抓得到，0 = 抓不到。必须是第一块 —— 它红了后面十块全是 No data，别去查业务。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "up{job=\"litellm-gateway\"}", "instant": true, "range": false }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "DOWN", "index": 0 },
+                "1": { "text": "UP", "index": 1 }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "5 分钟请求数",
+      "description": "sum(increase(litellm_proxy_total_requests_metric_total[5m]))。客户端视角的请求数，含失败的那部分。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(litellm_proxy_total_requests_metric_total[5m]))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "缓存命中率",
+      "description": "hits / 总请求数 —— 分母刻意用 total_requests，不用 hits+misses。原因见描述下方：cache_misses 只对流式记，用 hits/(hits+misses) 会把命中率算成 40%（真实 11.8%）。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(litellm_cache_hits_metric_total[5m])) / sum(increase(litellm_proxy_total_requests_metric_total[5m]))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "green", "value": 0.3 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "每请求成本",
+      "description": "spend / 总请求数。⚠️ 分子只算**真正打到上游**的请求（缓存命中不计费），分母算全部请求 —— 这个口径差本身就是信息：命中越多，每请求成本越低。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(litellm_spend_metric_total[5m])) / sum(increase(litellm_proxy_total_requests_metric_total[5m]))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyUSD", "decimals": 7, "noValue": "0" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "请求速率 · 按档位",
+      "description": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total[1m]))。看「流量有没有从便宜档挪到贵档」——这是成本上涨的第一个嫌疑人。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total[1m]))",
+          "legendFormat": "{{requested_model}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "P95 端到端延迟 · 按档位",
+      "description": "histogram_quantile(0.95, ...litellm_request_total_latency_metric_bucket)。含鉴权、前置钩子、上游调用、后置处理 —— 是「用户等多久」的口径，不是「模型算多久」。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, model_group) (rate(litellm_request_total_latency_metric_bucket[5m])))",
+          "legendFormat": "{{model_group}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "P95 TTFT · 按档位（只有流式有数）",
+      "description": "⚠️ 非流式请求**不产生**这个指标（源码里 stream is True 才 observe）—— 所以这条线只反映流式体验，别拿它评价全部流量。空白不是坏了，是没有流式请求。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, model_group) (rate(litellm_llm_api_time_to_first_token_metric_bucket[5m])))",
+          "legendFormat": "{{model_group}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "错误率 · 按档位",
+      "description": "failed / total。⚠️ 分母含成功请求，所以一条档位挂掉时这条线会到 1.0；但它**不含重试成功**的那部分 —— 上游失败一次、重试成功，这里仍显示 0。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (requested_model) (rate(litellm_proxy_failed_requests_metric_total[5m])) / sum by (requested_model) (rate(litellm_proxy_total_requests_metric_total[5m]))",
+          "legendFormat": "{{requested_model}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "token 吞吐 · 按档位",
+      "description": "sum by (requested_model) (rate(litellm_total_tokens_metric_total[5m]))。⚠️ 缓存命中也计 token —— 所以 token 涨而成本不涨是正常的，不是指标坏了。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 23 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (requested_model) (rate(litellm_total_tokens_metric_total[5m]))",
+          "legendFormat": "{{requested_model}}"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "缓存命中 / 未命中速率",
+      "description": "两条线放一起才能看出 cache_misses 少记了多少。⚠️ 这两个指标没有 model_group 标签（只有真实 model 名），所以拆不到档位 —— 想按档位拆只能靠 model_id 这个 64 位哈希。",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 23 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(litellm_cache_hits_metric_total[5m]))",
+          "legendFormat": "命中"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(litellm_cache_misses_metric_total[5m]))",
+          "legendFormat": "未命中"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

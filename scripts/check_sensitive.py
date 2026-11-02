@@ -101,6 +101,18 @@ _KEY_IS_REF = re.compile(
     r"service[-_]?account(?:[-_]?name)?|imagePullSecrets?)$"
 )
 
+# 「键名语义上不是秘密」的第二类：**数值型配置**与**文件路径**。
+# 背景（2026-11-02 · W5 D3）：给 LiteLLM 网关写自定义定价时，两个单价键
+#   （input / output 的每 token 成本）被当成凭据 —— 值是 0.000001 这种小数，
+#   8~9 个字符正好撞上 KV 的长度启发式。
+#   同一批还误报了「凭据文件」那个键：值是**容器内路径**，真凭据在那个文件里，
+#   而那个文件本身不进仓库。
+# 判据：单价是公开的商业参数，路径是位置信息 —— 两者都不是秘密。
+_KEY_IS_CONFIG = re.compile(
+    r"(?i)^(?:input_cost_per_token|output_cost_per_token|"
+    r"credentials_file|bearer_token_file)$"
+)
+
 
 def is_placeholder(value: str) -> bool:
     """判断一个「值」是否只是占位符 / 引用，而非真实凭据。
@@ -270,6 +282,7 @@ def scan_file(p: Path, patterns: list[tuple[str, re.Pattern[str]]]) -> list[str]
                 and m.group(2).strip().rstrip(")]}>.,:;") != m.group(1).strip()
                 and not is_placeholder(m.group(2))
                 and not _KEY_IS_REF.match(m.group(1).strip())
+                and not _KEY_IS_CONFIG.match(m.group(1).strip())
             ):
                 findings.append(
                     f"{rel}:{lineno}  命中「疑似凭据键值」  键={m.group(1)}  值={mask(m.group(2))}"
