@@ -435,6 +435,6 @@ python scripts/check_sensitive.py --all                              # 手动全
 | W7 | 11/16 – 11/22 | 护栏、成本、微调与 Agent | ⬜ 未开始 | — |
 | W8 | 11/23 – 11/30 | 作品集打包与求职启动 | ⬜ 未开始 | — |
 
-**当前在做**：W5（11/2–11/8）监控、工程规范与 IaC —— D1 指标采集、D2 看板与漂移、D3 LLM 专属指标三块已通。D3 的链路是：假上游（4010）→ 网关（4001，`/metrics/` 暴露 85 个 `litellm_*` 指标名、实测 300+ 行时序）→ Prometheus 抓取 → Grafana「LLMOps · LLM 专属指标」10 块面板。**接着做 D4 测试与 lint**（pytest + ruff/mypy），之后 CI、Terraform 本地 kind IaC。
+**当前在做**：W5（11/2–11/8）监控、工程规范与 IaC —— **D1 指标采集、D2 看板与漂移、D3 LLM 专属指标三块已全部完成并实跑验证**（11/2 收口）。D3 的链路是：假上游（4010）→ 网关（4001，`/metrics/` 暴露 85 个 `litellm_*` 指标名、实测 300+ 行时序）→ Prometheus 抓取 → Grafana「LLMOps · LLM 专属指标」10 块面板。**接着做 D4 测试与 lint**（pytest + ruff/mypy），之后 CI、Terraform 本地 kind IaC。
 **W4 已收口**（2026-10-28）：D1–D7 全部完成，周复盘三问与架构图 v3（十二层）已定稿。
-决策日志已累计 **DEC-001 ~ DEC-034**，见 [`docs/decisions.md`](docs/decisions.md)。
+决策日志已累计 **DEC-001 ~ DEC-035**，见 [`docs/decisions.md`](docs/decisions.md)。
