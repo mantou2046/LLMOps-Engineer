@@ -23,11 +23,14 @@ services:
 
     ports:
       # 只绑回环 —— 监控面板不该暴露到局域网。
-      # ⚠️ 宿主端口用 9095，不是 Prometheus 默认的 9090：
+      # ⚠️ 宿主端口默认 9095，不是 Prometheus 默认的 9090：
       #    本机 9090 已被 Langfuse 的 MinIO 占着（`0.0.0.0:9090->9000`），
       #    照抄 9090 会起不来，报 `bind: address already in use`。
       #    容器内仍是 9090 —— prometheus.yml 里抓自己的那条 targets 不用改。
-      - "127.0.0.1:9095:9090"
+      # ⚠️ 为什么写成 ${PROM_PORT:-9095}：9095 会被**常驻进程随机占用**
+      #    （2026-11-02 实测被 tailscaled 绑走），撞上时不用改文件，set 一下环境变量即可：
+      #      $env:PROM_PORT="19095"; docker compose ... up -d
+      - "127.0.0.1:${PROM_PORT:-9095}:9090"
 
     volumes:
       # 配置只读挂载：容器里改不了，逼着改仓库里的文件（配置即代码）
@@ -57,6 +60,69 @@ services:
       retries: 5
       start_period: 10s
 
+  # ---------------------------------------------------------------------------
+  # Grafana（W5 D2 加）—— 为什么和 Prometheus 挤在同一个 compose 文件里
+  # ---------------------------------------------------------------------------
+  # 因为它们是**一套东西的两个半边**：Prometheus 存数，Grafana 画图。
+  # 拆成两个 compose 文件，就要手动维护一个 network、手动记住先起谁 ——
+  # 而它们的生命周期本来就一致（要清就一起清）。数据库那种「应用要连的东西」
+  # 才需要单独一个文件（见 infra/compose.yml 的注释）。
+  #
+  # 配置全部走「文件挂载」而不是 UI 点击：
+  #   provisioning/datasources → 数据源（UI 里加的存 SQLite，换个卷就没了）
+  #   provisioning/dashboards  → 告诉 Grafana 去哪读看板 JSON
+  #   dashboards/*.json        → 看板本体，进版本库，能被 review
+  grafana:
+    # 同样钉版本：Grafana 大版本之间面板 schema 会变，latest 半年后可能读不了旧 JSON
+    image: grafana/grafana:13.2.5
+    container_name: llmops-grafana
+
+    ports:
+      # ⚠️ Grafana 默认 3000 —— 本机 3000 被 Langfuse 的 web 占着（0.0.0.0:3000->3000）。
+      #    改用 3001；同样可用 $env:GRAFANA_PORT 覆盖。
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+
+    environment:
+      # 管理员密码走环境变量，**不写死在文件里**（仓库要能公开）。
+      # 本地学习机默认 llmops，别拿去公网用。
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-llmops}
+      # 关掉自助注册：本地实例没有第二个用户，开了只是多个入口
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # 关掉匿名访问：否则同网段任何人打开就是 admin 视图，看不出权限差异
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # 关掉三个「往外说话」的开关：学习机没必要给它上报使用数据
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # 打开首页直接落在我们自己的看板上，省一次点鼠标
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/llmops-overview.json
+
+    volumes:
+      # 数据源与看板提供者：只读，容器里改不了 → 逼着改仓库文件
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      # 看板 JSON 本体：只读同上
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # Grafana 自己的状态（用户、偏好、告警历史）落命名卷
+      - grafanadata:/var/lib/grafana
+
+    depends_on:
+      # 只保证启动顺序，不保证 Prometheus 已经能应答 ——
+      # 数据源是「懒连接」，Grafana 起得比 Prometheus 早也不会报错，面板会先显示 No data。
+      prometheus:
+        condition: service_started
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
 volumes:
   promdata:
     name: llmops-prometheus-data
+  grafanadata:
+    name: llmops-grafana-data

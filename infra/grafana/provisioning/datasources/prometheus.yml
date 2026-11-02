@@ -1,0 +1,29 @@
+# =============================================================================
+# Grafana 数据源 —— 配置即代码（W5 D2）
+# -----------------------------------------------------------------------------
+# 为什么不用 UI 里点「Add data source」：
+#   在 UI 里加的数据源存在 Grafana 自己的 SQLite 里（/var/lib/grafana/grafana.db）。
+#   换台机器、删了卷、或者同事拉了这个仓库 —— 数据源就没了，看板全变 "No data"。
+#   写成文件之后，`up -d` 起来就是配好的，和 prometheus.yml 是同一个道理。
+#
+# ⚠️ uid 必须手写并固定：看板 JSON 里引用数据源靠的是 uid，
+#    不写 uid 的话 Grafana 会随机生成一个，看板换台机器就指不到数据源。
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus          # ← 看板 JSON 里的 "uid": "prometheus" 就是它
+    type: prometheus
+    access: proxy            # 由 Grafana 服务端去抓，不是浏览器直连
+    # ⚠️ 这里是**容器内**的地址：prometheus 是同一个 compose 里的服务名，
+    #    不是 127.0.0.1:9095（那是宿主端口，容器里访问不到）。
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      # 和 prometheus.yml 的 scrape_interval 对齐：Grafana 用它决定 $__rate_interval 的下限。
+      # 写小了 → rate 窗口里样本太少，曲线锯齿；写大了 → 短毛刺看不见。
+      timeInterval: 5s
+      # 用 Prometheus 的类型信息（counter / gauge）来决定默认单位和面板行为
+      httpMethod: POST

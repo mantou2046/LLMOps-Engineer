@@ -1,0 +1,25 @@
+# =============================================================================
+# 看板提供者 —— 告诉 Grafana「去哪个目录读 JSON」（W5 D2）
+# -----------------------------------------------------------------------------
+# 这一段本身不含任何面板，只负责把 /var/lib/grafana/dashboards 下的 *.json
+# 注册成看板。改 JSON 后 Grafana 会在 updateIntervalSeconds 内自动重读，
+# 不用重启容器（本地调试很省事）。
+# =============================================================================
+
+apiVersion: 1
+
+providers:
+  - name: llmops
+    orgId: 1
+    # 所有 JSON 都收进这个文件夹，看板列表里不至于和 Grafana 自带的混在一起
+    folder: LLMOps
+    type: file
+    # 允许在 UI 里删看板 —— 设 false 的话删了也会被文件重新注册回来，容易困惑
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    # ⚠️ 设 false：UI 上的临时改动不落盘，刷新就回到 JSON 的状态。
+    #    想让 UI 改动生效，必须改 JSON 再提交 —— 这正是「配置即代码」要的效果。
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
