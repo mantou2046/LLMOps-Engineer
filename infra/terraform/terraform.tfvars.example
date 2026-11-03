@@ -1,0 +1,6 @@
+# 复制本文件为 terraform.tfvars 并填真实值（terraform.tfvars 已 gitignore，不入库）
+# cp terraform.tfvars.example terraform.tfvars
+
+postgres_db       = "llmops"
+postgres_user     = "llmops"
+postgres_password = "CHANGE_ME" # 占位密码：本地 IaC 演示环境，填任意非空值即可

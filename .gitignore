@@ -82,6 +82,16 @@ pgv.tar
 .idea/
 .DS_Store
 Thumbs.db
+
+# ---- Terraform（W5 D6）----
+# state 可能含敏感值（Secret data），绝不入库；kubeconfig/tfvars 是本机环境
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.*
+infra/terraform/terraform.tfvars
+infra/terraform/kubeconfig
+*.tfplan
 desktop.ini
 *.swp
 *~
