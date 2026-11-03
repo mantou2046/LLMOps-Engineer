@@ -1422,6 +1422,59 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 ---
 
+## DEC-037 · CI 三件事：同一条检查搬上云、测试全 mock、push registry 给台阶（2026-11-06 · W5 D5）
+
+**速览**
+
+| 项 | 结论 | 为什么 |
+| --- | --- | --- |
+| CI 扩成什么 | 脱敏 + lint + test + build 四 job | W1 的脱敏保留，旁边加三道新的 |
+| 测试密钥 | 全 mock，CI 无 .env 无 secrets | conftest 从 D4 起设 LLM_MODE=mock，架构红利 |
+| push registry | 达标版 build-only，完整推留台阶 | 不上云 + 公开仓脱敏 |
+| build 抓到的 bug | mlflow→scikit-learn→alpine 装不上 → 挪 mlflow 出生产镜像 | 本地绿 ≠ 构建绿 |
+
+*一句话：CI 把本地钩子的检查搬上云、测试全 mock 所以不用密钥、build 真抓到一个 alpine 装不上 scikit-learn 的 bug。*
+
+**四条决策**
+
+1. **CI 扩为四 job：脱敏（保留 W1）+ lint(ruff) + test(pytest mock) + build(镜像能构建)。** 钩子是本地兜底不是 CI 替代（M6 6.5 原话）：`--no-verify` 能绕过本地钩子，但过不了 CI。同一条 ruff + pytest 在云端再跑一遍。
+
+2. **测试全 mock 是架构红利。** conftest 从 D4 起就设 `LLM_MODE=mock`，CI 天然不含真实 API Key，不用 secrets、不用特判。任务卡「CI 别跑需要真实 API Key 的测试」被 conftest 直接解决。
+
+3. **push registry 走达标版 build-only，不给硬门槛。** W1 定案不上云（没有真实消费方）+ 公开仓脱敏（推镜像暴露代码）。build-only 验证「测试过的代码能构建」已有真实价值；需要推时用 GHCR + packages:write 加 secrets 就能开，是加配置不是重做。
+
+4. **build 失败用「mlflow 挪出生产镜像」修。** mlflow 依赖 scikit-learn<2，scikit-learn 没有 musllinux wheel，alpine 生产镜像装不上（Dockerfile 故意不装编译器省体积）。`app/combos.py` 的 `import mlflow` 在 try/except 里，容器内自动回落 local-fallback、服务照起 → 挪到 `requirements-dev.txt` 不损失核心能力，还保住 alpine + <200MB。选它而非「装编译器」（破体积）或「换 slim」（破 <200MB，基础层就 176.5MB）。
+
+**实测**（2026-11-03，GitHub Actions ubuntu-latest / Docker 29.9 / 本机 D:/python314）
+
+| 实验 | 结果 |
+| --- | --- |
+| 第一次 push | lint ✅ test ✅ 脱敏 ✅，但 **build ❌** |
+| build 报错 | `scikit-learn` 在 alpine `metadata-generation-failed`、meson 编译失败、找不到 `icc`/`icx` |
+| 根因 | mlflow 依赖 scikit-learn<2，无 musllinux wheel，Dockerfile 不装编译器 → 源码编译失败 |
+| 本机 vs CI | 本机 pytest 26 绿（Windows glibc 有 wheel）vs CI build 红（alpine musl 没有） |
+| 修复 | mlflow 挪 dev，生产镜像剩 runtime 依赖全有 wheel，`docker build` 过 |
+| 修复后镜像 | **134.4MB < 200MB**（保住 W1 验收） |
+| 修复后 CI | lint ✅ test ✅ build ✅ 脱敏 ✅ 全绿 |
+
+**代价**
+
+| 代价 | 对策 |
+| --- | --- |
+| build-only 没验证「推上去能不能拉」 | 本地 kind 本来就不从 registry 拉，无消费方 |
+| CI 跑 pytest 装两套 requirements | 比本地多一步，可接受 |
+| mlflow 挪走后生产容器失去 registry 取配置能力 | `import mlflow` 在 try/except 里自动回落本地 fallback，服务照起；本机/开发环境仍有 |
+
+**复核条件**：W8 若有余力做真实云上小实验，把 build job 的 push 开关打开（GHCR + packages:write + secrets），补上「推 + 拉」闭环。若未来生产真要 mlflow-registry 取配置，给 alpine 装编译器（接受体积涨）或用 slim（接受破 <200MB）。
+
+**反模式**：CI 里重跑一遍 yaml 命令（应复用 Makefile/脚本）；把 `push registry` 当验收硬门槛（本项目是锦上添花）；本地绿就以为构建绿（「测试绿 ≠ 镜像能构建」是 D5 抓到的实锤）。
+
+**面试怎么说**：CI 把本地钩子检查搬上云、测试全走 mock 所以不用密钥、build 真抓到一个 alpine 装不上 scikit-learn 的 bug，用「mlflow 挪出生产镜像」保住体积验收。比「我写了个 ci.yml」能说明你懂 CI 边界：CI≠CD、本地钩子≠CI、测试可复现、**本地绿≠构建绿**。
+
+> 测试绿不代表镜像能构建 —— 这是 D5 被 CI 实测教育的那一课。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
@@ -1444,5 +1497,6 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 - [x] 看板画几块、漂移报告信哪一列（W5 D2）→ 见 DEC-034
 - [x] LLM 指标从哪层取、每个比值的分母是什么（W5 D3）→ 见 DEC-035
 - [x] 测试怎么分层、lint 怎么取舍（W5 D4）→ 见 DEC-036
+- [x] CI 怎么分层、push registry 怎么落地、本地绿为何不代表构建绿（W5 D5）→ 见 DEC-037
 - [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
 - [ ] 语义缓存阈值怎么定（W7 · 待记）
