@@ -1366,6 +1366,57 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 ---
 
+## DEC-036 · 单测锁纯函数、集成测走 mock HTTP、lint 只留 ruff（2026-11-03 · W5 D4）
+
+**速览**
+
+| 项 | 结论 | 为什么 |
+| --- | --- | --- |
+| 单测测什么 | 只测 routing / prompts / llm 三个「改坏代价最高」的对象 | 测实现细节 = 重构一次红一片 |
+| 集成测怎么走 | FastAPI TestClient + mock 模式走完整 HTTP 链路 | 不必起 uvicorn / 上云，也能验证协议层+路由+SSE 组帧 |
+| lint 用什么 | 只留 ruff | 一个顶 isort+black+pylint 三件，任务卡定案 |
+| pre-commit 怎么挂 | 追加进 `.githooks/pre-commit`，不装 pre-commit 工具 | 仓库 `core.hooksPath=.githooks` 与 pre-commit 工具冲突，且不宜废弃 W1 起的脱敏钩子 |
+
+*一句话：测试集中在「改坏了代价最高」的地方，集成测过 HTTP 但不上云，lint 只留一个工具。*
+
+**四条决策**
+
+1. **单测只锁纯函数。** `routing.decide` 判档是纯函数（无 IO、同输入同结论）—— 单测最该测的形态，12 条用例把判档规则（显式/长度/多轮/强关键词/引用/简单词/结构化）全锁住，以后调阈值不怕改坏。
+
+2. **集成测走 mock HTTP。** LLM 层在 `LLM_MODE=mock` 下跑的是**真**重试、真结构化、真降级的代码路径，只是「模型生成」是假的 —— 不联网也能把最贵的逻辑锁死。集成测用 `TestClient` 过完整 HTTP（协议层+路由+SSE 组帧），但不必起 uvicorn、不必上云。
+
+3. **lint 只留 ruff。** 任务卡定案，一个工具顶 isort+black+pylint 三件；装两套会在 pre-commit 打架。钩子里 ruff 只 `check` 不 `--fix` —— 带 `--fix` 会把可自动修复的坏代码（如未用 `import os`）静默修掉然后提交成功，拦截就失效了。
+
+4. **pre-commit 复用 `.githooks`，不装 pre-commit 工具。** 仓库从 W1 就设 `core.hooksPath=.githooks`（脱敏钩子），`pre-commit install` 会 `Cowardly refusing to install hooks with core.hooksPath set`。为迁就 pre-commit 工具去废弃既有脱敏钩子不值当，所以直接把 ruff + pytest 追加进 `.githooks/pre-commit`，三步顺序执行（脱敏 → ruff → pytest），任一步失败即拦截。
+
+**实测**（2026-11-03，pytest 8.4 / ruff 0.x / `D:/python314`）
+
+| 实验 | 结果 |
+| --- | --- |
+| 测试全绿 | `26 passed`（routing 12 + prompts 5 + llm 4 + integration 5） |
+| 钩子拦坏提交 | `import os` 未用 → ruff 报 F401，提交失败（退出码 1），文件留在暂存区 |
+| 缺字段返回码 | FastAPI 对缺 body 字段返回 422，不是 400 |
+| mock 全局计数器 | `_mock_calls` 在测试间累积，必须每次测试前归零 |
+| Windows 路径 | `Path.relative_to` 返回 `\` 分隔符，断言别写死正斜杠 |
+
+**代价**
+
+| 代价 | 对策 |
+| --- | --- |
+| 只测了三个对象，没铺全 | 集中在「改坏代价最高」的地方，维护成本低 |
+| mock 集成测验证不了真实模型输出质量 | 那是 W6 评估体系（RAGAS）的职责，分工不同 |
+| 「检索」测试留待 W6 | 现在没有检索代码，硬凑测试等于测空气 |
+
+**复核条件**：W6 接上检索后，补 `tests/test_rag.py`（检索 recall / 引用命中）；「测真模型输出」交给评估体系，不塞进 pytest。
+
+**反模式**：测试里断言「等于某句完整输出」（mock 措辞一改就红）；钩子带 `--fix`（拦截失效）；用 `git commit --no-verify` 绕过钩子。
+
+**面试怎么说**：单测锁纯函数、集成测走 mock HTTP、lint 只留 ruff —— 这一句比「我写了 26 个测试」更能证明在做工程判断。测试分层答三段式：纯函数单测锁规则、mock HTTP 集成测锁链路、真模型质量交给评估体系。
+
+> 测试别断言全文，断言结构 + 关键约束。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
@@ -1387,5 +1438,6 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 - [x] 路由命中率与缓存命中率怎么算、为什么这么算（W4 D6）→ 见 DEC-033
 - [x] 看板画几块、漂移报告信哪一列（W5 D2）→ 见 DEC-034
 - [x] LLM 指标从哪层取、每个比值的分母是什么（W5 D3）→ 见 DEC-035
+- [x] 测试怎么分层、lint 怎么取舍（W5 D4）→ 见 DEC-036
 - [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
 - [ ] 语义缓存阈值怎么定（W7 · 待记）
