@@ -1491,6 +1491,66 @@ CI build 全绿后，本地 `docker run` 手动兜「容器能启动」这层，
 
 ---
 
+## DEC-038 · 本地 IaC 另起全新环境，管集群和数据库两类资源（2026-11-03 · W5 D6）
+
+*一句话：Terraform 的价值是「从声明式文件一键重建」，不是「接管已有环境」——所以另起 `llmops-iaac`，只管集群 + Postgres 两类资源。*
+
+**背景**
+W5 D6 给项目上 Terraform 本地 IaC。任务卡（2026-10-14 Echo 降权）：用 kind provider + local provider 只写两类核心资源（集群 + Postgres/pgvector），存储最简、密钥占位，`destroy` 后 `apply` 能重建即达标。现状是 kind 集群 `llmops` 已在跑（W1 起手工 kubectl apply）、Postgres 已用 compose 和 k8s manifest 部署过——所以先要回答「接管还是另起」。
+
+**选项**
+
+1. 接管现有 `llmops` 集群与 Postgres（terraform import 收编）
+2. 另起全新 IaC 环境（新集群 `llmops-iaac` + 新库），与现有并行（本方案）
+3. 范围扩大：连应用 Deployment、网关、ingress 一起管
+
+**选择**
+
+方案 2 + 只管两类资源：`infra/terraform/main.tf` 用 `tehcyx/kind` v0.13.0 建集群 + `hashicorp/kubernetes` v2.38.0 声明 Postgres 六件套（namespace / ConfigMap×2 / Secret / headless Service / StatefulSet+PVC）。
+
+**理由**
+
+- **接管的四个硬障碍**：① 现有 PVC 无 tf 管理标签，import 后本地声明与手工调过的字段（probe/limits/PGDATA）互当漂移；② 现有库有真实数据，`destroy` 真删数据盘——把在用数据挂进 IaC 管理，风险配不上收益；③ 集群内 8 个 namespace、20+ workload 来源混杂（helm/裸 manifest/operator），逐个 import 后 state 极脏；④ 验收「destroy 后 apply 能重建」演示的是**从声明式重建**，不是删掉手工作坊集群。
+- **范围分层**：环境层（集群/库/网络）归 Terraform，应用层（llmops-api/litellm/mlflow）归 helm + CI——基础设施和部署的 state 不混（M6 6.9/6.10 原话），应用已有 chart + CI 两条管路，再写一遍 IaC 是重复。
+- **provider 选型**：`kyma-incubator/kind` 2022-04 archived（v0.0.11 停更）→ 用同一作者的活跃 fork `tehcyx/kind`（v0.13.0，1.2M 下载，2026-10-22 发版）。Registry 里 kind 同名 provider 十几个，选型时逐一核对。
+
+**实测**（2026-11-03，本机：terraform 1.16.6 / kind 0.33.0 / Docker 29.9.2 / 节点 k8s v1.37.0 + containerd v2.3.4）
+
+| 实验 | 结果 |
+| --- | --- |
+| `init` → `validate` | tehcyx/kind 0.13.0 + kubernetes 2.38.0 装齐，HCL 全过 |
+| `plan` | 8 to add（集群+镜像load+ns+2×ConfigMap+Secret+Service+STS）；kubeconfig 不存在警告=known-after-apply，不阻断 |
+| `apply`（首次） | 集群 40s 就绪；STS 等 rollout 超时（镜像未进节点，ImagePullBackOff） |
+| `kind_load` / `kind load` | **全灭**：`ctr: content digest … not found`（Docker 29 bug，见下） |
+| destroy → apply 重建 | 集群+库全重建；apply 期间并行灌镜像，postgres-0 `1/1 Running` |
+| pgvector 功能 | `CREATE EXTENSION vector` 就位（0.8.7），向量表插取正常 |
+| state 收敛 | `No changes. Your infrastructure matches the configuration.` |
+
+**实跑抓到的三个环境级坑（比验收本身值钱）**
+
+1. **Docker 29 + kind load 全家全灭**（kind issue #3795/#4066）：`kind load docker-image` / `image-archive` / `kind_load` 资源底层全走节点内 `ctr images import --all-platforms`，撞 Docker 29 containerd image store 的导出 bug——`docker save` 导出的多平台 OCI index 引用未导出的 blob（amd64 宿主上 arm64 manifest 缺 blob）。绕行：老节点 `ctr export --platform linux/amd64` → 宿主中转 → 新节点 `ctr import --platform linux/amd64`（固化成 `scripts/load_pgvector_to_iaac.sh`）。不用官方建议「关 containerd image store」——现有镜像全在那个 store 里。
+2. **宿主代理被 kind 带进节点**：节点容器拿到 `HTTP_PROXY=http://127.0.0.1:12621`，容器内 127.0.0.1 是节点自己 → `proxyconnect refused`；镜像加速器配了也白配（加速请求同样被劫持）→ 节点拉镜像这条路在本机就是死的，只能灌。
+3. **apply 中断留孤儿**：SIGTERM 后资源在集群上、state 没记录 → 重跑撞 `already exists`；坏空壳 state 条目报 `Unexpected Identity Change` → `state rm` + `import` 修复。
+
+**代价**
+
+| 代价 | 对策 |
+| --- | --- |
+| 重建后节点是空的，镜像要重灌（destroy 掉了灌好的节点） | 验收顺序固化为「apply 卡 STS 期间并行跑灌镜像脚本」；镜像 159MB 灌一次 ~10s |
+| IaC 环境与手工环境并行，两份 Postgres | namespace `iaac` 隔离；kubectl context 切换要留神（干完活切回 `kind-llmops`） |
+| `kind_load` 资源在本机不可用 | 脚本替代；README 已注记 Docker 29 bug 出处 |
+| `.terraform.lock.hcl` 一并 gitignore | 单人项目无碍；多人协作前应放开（锁 provider 版本） |
+
+**复核条件**：Docker 修复 save/import 兼容问题（kind #3795 关闭）后，改回 `kind_load` 资源、删脚本；W8 若做云上实验，同一结构换 provider（kind→EKS，PVC→云盘）即云 IaC，方法论不变。
+
+**反模式**：拿 Terraform 去接管手工环境（import 会脏、destroy 会删在用数据）；环境层和应用层混进同一份 state；给「达标即可」的任务上重度工程；`destroy` 前不想清楚删的是哪个环境的盘。
+
+**面试怎么说**：环境即代码我把 kind 集群和 Postgres 写成 main.tf，destroy 后 apply 能重建出可用环境；范围只管环境层、应用归 helm 和 CI，两层 state 不混；另起全新环境不接管手工集群——Terraform 的价值是从声明式文件重建，不是当接管工具。顺带踩穿了 Docker 29 的 containerd 导出 bug（多平台 index 引用未导出 blob），用单平台 ctr export/import 绕过。
+
+> 环境即代码的意义不是「我用过 Terraform」，是「我的环境可以从版本库里的一组文件，一键从无到有」。
+
+---
+
 ## 待记录（后续每天补充）
 
 - [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
@@ -1514,5 +1574,6 @@ CI build 全绿后，本地 `docker run` 手动兜「容器能启动」这层，
 - [x] LLM 指标从哪层取、每个比值的分母是什么（W5 D3）→ 见 DEC-035
 - [x] 测试怎么分层、lint 怎么取舍（W5 D4）→ 见 DEC-036
 - [x] CI 怎么分层、push registry 怎么落地、本地绿为何不代表构建绿（W5 D5）→ 见 DEC-037
+- [x] 本地 IaC 管什么不管什么、另起环境为何好过接管旧环境（W5 D6）→ 见 DEC-038
 - [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
 - [ ] 语义缓存阈值怎么定（W7 · 待记）
