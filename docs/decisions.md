@@ -1457,6 +1457,22 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 | 修复后镜像 | **134.4MB < 200MB**（保住 W1 验收） |
 | 修复后 CI | lint ✅ test ✅ build ✅ 脱敏 ✅ 全绿 |
 
+**实测再补（同一日 · build 绿 ≠ run 绿，连续又抓两个）**
+
+CI build 全绿后，本地 `docker run` 手动兜「容器能启动」这层，又抓到两个 build 测不出的问题：
+
+| 实验 | 结果 |
+| --- | --- |
+| `docker run` 起容器 | 一启动就 `ModuleNotFoundError: No module named 'prompts'`，Exit code 1 |
+| 根因① 精确 COPY 漏模块 | `app/Dockerfile` 用精确 COPY（不用 `COPY . .`），只复制了 `main.py / llm.py / observability.py`，漏了 `prompts.py / routing.py / metrics.py`。**COPY 少文件不影响 build（照样生成镜像），只在运行时 import 才炸** |
+| 修复① | 补三行 `COPY --chown=appuser:appuser app/prompts.py ./prompts.py`（routing/metrics 同理）。`combos.py` 不用补（llm.py 里是 try/except 可选 import，容器内自动回落） |
+| 再 `docker run` | 服务起来，宿主 curl `/health` 返 200，但 Docker 判 `unhealthy` |
+| 根因② HEALTHCHECK 的 localhost | alpine `/etc/hosts` 把 `localhost` 同时映射 `::1` + `127.0.0.1`，busybox `wget` 优先连 `::1`（IPv6），而 uvicorn 只监听 `0.0.0.0`（IPv4）→ `Connection refused`。`wget 127.0.0.1` 返 0 / `wget localhost` 返 1 |
+| 修复② | HEALTHCHECK 改 `http://127.0.0.1:8000/health`，重建后 `healthy` |
+| 修复后全绿 | 镜像 141MB < 200MB，健康检查 `healthy`，`/health` 返 `{"status":"ok"}` |
+
+> **完整三段验证链**：本地 pytest 绿 → CI build 绿 → **本地 `docker run` + 探活 + HEALTHCHECK 绿**。CI build job 只保证「镜像能构建」，不保证「容器能启动、服务能探活」——后两层要本地亲手兜。这是「本地绿 ≠ 构建绿」之后同族的第三层：**构建绿 ≠ 运行绿**。
+
 **代价**
 
 | 代价 | 对策 |

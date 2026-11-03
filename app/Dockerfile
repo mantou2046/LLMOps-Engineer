@@ -115,6 +115,9 @@ ENV PATH="/opt/venv/bin:$PATH" \
 COPY --chown=appuser:appuser app/main.py ./main.py
 COPY --chown=appuser:appuser app/llm.py ./llm.py
 COPY --chown=appuser:appuser app/observability.py ./observability.py
+COPY --chown=appuser:appuser app/prompts.py ./prompts.py
+COPY --chown=appuser:appuser app/routing.py ./routing.py
+COPY --chown=appuser:appuser app/metrics.py ./metrics.py
 
 # 切到非 root
 USER appuser
@@ -129,8 +132,12 @@ EXPOSE 8000
 #    · --no-check-certificate 不需要：这里是 http 自连，无 TLS
 #    ⚠️ 如果为了「让 curl 可用」而 apk add curl，会带回 ca-certificates + 约 4~8MB 体积，
 #       与 < 200MB 的目标背道而驰 —— 这就是本文件不装 curl 的原因。
+#    ⚠️ 地址必须写 127.0.0.1 不能写 localhost：alpine 的 /etc/hosts 把 localhost 同时映射
+#       ::1(IPv6) 和 127.0.0.1(IPv4)，busybox wget 优先解析到 ::1，但 uvicorn 只监听 0.0.0.0(IPv4)，
+#       于是健康检查永远 Connection refused → 镜像被误判 unhealthy（服务本身是好的）。
+#       10-03 D5 实测：wget localhost exit1 / wget 127.0.0.1 exit0，两者差在这。
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget -q -T 3 --spider http://localhost:8000/health || exit 1
+    CMD wget -q -T 3 --spider http://127.0.0.1:8000/health || exit 1
 
 # 生产不用 --reload；worker 数由编排层决定，不写死
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
