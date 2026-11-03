@@ -1,0 +1,5 @@
+# 开发/测试工具 —— 不进生产镜像（见 requirements.txt 头注释的约定）
+pytest>=8.0,<9.0
+httpx>=0.27,<1.0        # FastAPI TestClient 需要它发真实 HTTP
+ruff>=0.9,<1.0          # 一个顶 isort+black+pylint（W5 任务卡定的是 ruff，别装三件套）
+pre-commit>=4.0,<5.0

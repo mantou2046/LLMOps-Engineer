@@ -1,17 +1,51 @@
 #!/bin/sh
-# 提交前脱敏检查 —— 由 scripts/check_sensitive.py 实现
+# 提交前检查（W1 起）：脱敏 → ruff → pytest，任一步失败即拦截提交。
 #
-# 启用方式（本仓库已通过 core.hooksPath 指向 .githooks，无需拷贝到 .git/hooks）：
-#     git config core.hooksPath .githooks
+# 启用方式：git config core.hooksPath .githooks（本仓库已设）
+# 临时跳过（谨慎，只在确认过是误报时）：git commit --no-verify
 #
-# 临时跳过（谨慎使用，只在确认过是误报时）：
-#     git commit --no-verify
+# W5 D4 追加：ruff + pytest。
+# ⚠️ 不用 pre-commit 工具框架 —— 仓库 core.hooksPath 指向 .githooks，
+#    pre-commit install 会拒绝（Cowardly refusing），且不宜废弃既有脱敏钩子。
+#    所以直接在 shell 里串，三步顺序执行。
+# ⚠️ 结尾不能用 exec（exec 会替换当前 shell 进程，后面的检查不会跑）。
 
-for PY in python python3 py; do
-    if command -v "$PY" >/dev/null 2>&1; then
-        exec "$PY" scripts/check_sensitive.py --staged
+# 候选解释器：本机主解释器 D:/python314 优先，回落到 PATH 里的 python
+# 逐个测「能否跑 ruff」，选第一个能用的（托管运行时没装 pytest/ruff，要跳过）
+PY=""
+for c in "D:/python314/python.exe" "python3" "python" "py"; do
+    if command -v "$c" >/dev/null 2>&1 && "$c" -m ruff --version >/dev/null 2>&1; then
+        PY="$c"
+        break
     fi
 done
+if [ -z "$PY" ]; then
+    echo "pre-commit: 未找到能跑 ruff 的 python 解释器，跳过全部检查" >&2
+    exit 0
+fi
 
-echo "check_sensitive: 未找到 python 解释器，跳过脱敏检查" >&2
+fail=0
+
+# 1) 脱敏检查（W1 起，原逻辑保留）
+if ! "$PY" scripts/check_sensitive.py --staged; then
+    echo "pre-commit: 脱敏检查失败" >&2
+    fail=1
+fi
+
+# 2) ruff（W5 D4 追加）：格式 + lint。全量扫 tests（app/scripts 存量 lint 先不卡）
+if [ "$fail" -eq 0 ] && ! "$PY" -m ruff check tests/; then
+    echo "pre-commit: ruff 未通过（tests/ 有 lint 错误）。先手动跑 --fix 修复，再重新 add 后提交" >&2
+    fail=1
+fi
+
+# 3) pytest（W5 D4 追加）
+if [ "$fail" -eq 0 ] && ! "$PY" -m pytest; then
+    echo "pre-commit: pytest 未通过" >&2
+    fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
+    echo "pre-commit: 有检查未通过，提交被拦截" >&2
+    exit 1
+fi
 exit 0

@@ -1,0 +1,15 @@
+[tool.ruff]
+# 目标 Python 版本：本机 3.14
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+# 打开常用检查：E=错误、F=未用 import/变量、W=警告、I=isort、UP=pyupgrade、B=bugbear
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "E501"]  # 测试里用 assert 是正常的
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
