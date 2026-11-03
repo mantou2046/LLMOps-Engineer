@@ -32,12 +32,6 @@ tenacity>=9.0,<10.0
 #    真按环境拆依赖，就得维护两套 requirements，收益（几 MB）不抵维护成本。
 langfuse>=2.50,<4.0
 
-
-# ---- 实验追踪（W3 D14 接入）----
-# 一次 prompt 对比 = 一个 run；参数 / 指标 / 产物进同一个 tracking server
-# ⚠️ 只被 scripts/track_prompt_run.py 用到，/chat 服务本体不 import 它
-mlflow>=3,<4
-
 # ---- 监控（W5 D1 接入）----
 # prometheus_client：/metrics 端点与三个 HTTP 指标（见 app/metrics.py）
 # ⚠️ 装它是必需的（/metrics 靠它生成），但**默认不引入任何后台线程** ——
