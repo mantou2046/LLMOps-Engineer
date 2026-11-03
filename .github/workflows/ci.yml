@@ -9,6 +9,7 @@ permissions:
   contents: read
 
 jobs:
+  # ---------- 1) 脱敏检查（W1 起，原 job 保留） ----------
   sensitive-check:
     name: 脱敏检查
     runs-on: ubuntu-latest
@@ -19,3 +20,44 @@ jobs:
           python-version: "3.12"
       - name: 扫描全树
         run: python scripts/check_sensitive.py --all
+
+  # ---------- 2) lint（W5 D5 加）：ruff 检查 ----------
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 装 dev 依赖（含 ruff）
+        run: pip install -r requirements-dev.txt
+      - name: ruff check（与本地钩子同一条命令）
+        run: ruff check tests/
+      # 和 .githooks/pre-commit 里的 ruff 一致，只 check 不 --fix
+
+  # ---------- 3) test（W5 D5 加）：pytest，全 mock，无 API Key ----------
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 装 dev 依赖（含 pytest/httpx）
+        run: pip install -r requirements-dev.txt
+      - name: 装运行依赖（tests 会 import app/ 的模块）
+        run: pip install -r requirements.txt
+      - name: pytest（走 LLM_MODE=mock，不碰真实 API）
+        run: pytest
+      # pyproject.toml 的 testpaths=["tests"] 会把范围锁死在 tests/
+
+  # ---------- 4) build（W5 D5 加）：验证镜像能构建 ----------
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建镜像（用 app/Dockerfile，上下文=仓库根）
+        run: docker build -f app/Dockerfile -t llmops-api:ci-${{ github.sha }} .
