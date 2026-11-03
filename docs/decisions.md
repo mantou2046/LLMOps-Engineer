@@ -1415,6 +1415,11 @@ D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**�
 
 > 测试别断言全文，断言结构 + 关键约束。
 
+**验收**（2026-11-03 乐哥亲手跑）：
+- 造坏文件 `tests/_bad_hook_demo.py`（`import os` 未用）→ `git commit` 被钩子拦下，ruff 报 `F401 [*] 'os' imported but unused`，提交失败（退出码 1），文件留在暂存区 —— **钩子真能拦**。
+- 清理改用 `git restore --staged tests/_bad_hook_demo.py`（`git reset -q <path>` 对删除后暂存路径报 `ambiguous argument ... unknown revision`，残留成 `AD` 状态）。
+- 仓库最终 `working tree clean`，`pytest 26 passed` 全绿。
+
 ---
 
 ## 待记录（后续每天补充）
