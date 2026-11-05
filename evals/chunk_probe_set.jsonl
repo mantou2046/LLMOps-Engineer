@@ -1,0 +1,10 @@
+{"id":"p01","question":"StorageClass 的 volumeBindingMode 设成什么，才能等 Pod 调度完再绑定卷？","expect_keywords":["WaitForFirstConsumer"]}
+{"id":"p02","question":"kubectl 排错时，为什么建议看 EndpointSlice 而不是旧的 Endpoints？","expect_keywords":["EndpointSlice"]}
+{"id":"p03","question":"kind 载入多架构镜像时，用哪个命令代替 kind load？","expect_keywords":["ctr"]}
+{"id":"p04","question":"数据库初始化脚本放在哪里，为什么不在应用启动时建表？","expect_keywords":["initdb"]}
+{"id":"p05","question":"kind 集群上装的是哪一个 Ingress 控制器？","expect_keywords":["ingress-nginx"]}
+{"id":"p06","question":"Docker 数据盘迁到 E 盘之后，kind 集群需要重建吗？","expect_keywords":["无需重建"]}
+{"id":"p07","question":"K8s 里用来限制 Pod 之间流量的网络策略对象叫什么？","expect_keywords":["NetworkPolicy"]}
+{"id":"p08","question":"K8s 的权限模型分哪三层？","expect_keywords":["RBAC"]}
+{"id":"p09","question":"提交前脱敏门禁对占位符做了什么特殊处理？","expect_keywords":["占位符豁免"]}
+{"id":"p10","question":"无头 Service 的 DNS 解析和普通 Service 有什么不同？","expect_keywords":["headless"]}
