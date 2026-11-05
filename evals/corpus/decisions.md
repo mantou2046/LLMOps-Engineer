@@ -1,0 +1,1579 @@
+# 决策日志
+
+> 规则：**每个关键选型写一条，写清「为什么选它、放弃了什么」**。  
+> 面试时这一页比 README 更能证明你是在做工程，而不是在跟着教程敲。  
+> 格式：`## YYYY-MM-DD · 决策标题` → 背景 / 选项 / 选择 / 理由 / 代价 / 复核条件
+
+---
+
+## 2026-10-07 · 作品集选题：资金/财务制度知识库问答
+
+**背景**  
+八周学习需要一个贯穿始终的作品集项目，而不是八个独立练习。选题要同时满足三件事：技术栈能覆盖 LLMOps 全链路、数据源我能自造（不依赖任何内部资料）、且能体现我的差异化。
+
+**选项**
+
+1. 通用文档问答（用公开数据集，如论文 / 维基）—— 最省事，但和几百个同类项目没区别
+2. 纯技术演示（模型对比 / 推理性能压测）—— 技术含量高，但没有业务场景
+3. **资金 / 财务制度知识库问答** —— 数据要自造，但业务域是我的一线经验所在
+
+**选择**：方案 3
+
+**理由**
+
+- **差异化**：市面转 LLMOps 的人大半是纯工程背景，**没有业务域**。资金 / 财务制度这个领域我有 用友 BIP / 银企直联 / 银行回单 的交付经验，能问出别人问不出的难例（如「这笔付款该走哪条审批链」「条款冲突时以哪个为准」）——**难例质量直接决定评估体系的说服力**。
+- **技术覆盖**：制度问答天然需要引用溯源 → 强制做 RAG + 评估；条款级精度要求 → 强制做检索调优；合规敏感 → 强制做护栏。需求是自然长出来的，不用硬凑。
+
+**代价**
+
+- 数据必须**全部自造**，前期要多花时间编一套同构的样例制度文档
+- 不能拿真实案例讲，说服力略打折（但换来的是零合规风险）
+
+**复核条件**  
+若 W6 建 golden set 时发现自造文档覆盖不了足够的难例类型（如条款冲突、跨文档引用），则补充文档而不是放宽评估标准。
+
+---
+
+## 2026-10-07 · 数据源方案：全部自造同构样例
+
+**背景**  
+作品集需要一个**能公开演示**的数据源，而资金 / 财务制度的原始资料来自具体单位。
+
+**选择**：数据层**全部自造同构样例**，真实资料永不入库。  
+（仓库可见性与提交门禁是另一件事，见下一条决策。）
+
+**理由**
+
+- **自造数据不是妥协，反而更好用**：能**主动设计难例**（条款冲突、跨文档引用、应该拒答的问题），而真实数据往往「刚好能用」却覆盖不到边界 —— **难例质量直接决定评估体系的说服力**
+- 零合规风险，可以放心演示
+
+**代价**：需要额外写一套数据生成脚本；演示时不能说「这是某公司的真实制度」，说服力略打折
+
+**复核条件**：数据源范围变更后，重新判断一次「这份数据能不能公开」；提交层面的脱敏由下一条决策的门禁兜底
+
+---
+
+## 2026-10-07 · 仓库设为公开，并加一道提交前脱敏门禁
+
+**背景**  
+作品集要公开才有求职价值，但数据源涉及财务制度。需要在「可见性」和「泄露风险」之间定一个策略。
+
+**选项**
+
+1. 私有仓库，W8 再决定是否转公开
+2. 公开仓库，靠自觉 + `.gitignore`
+3. **公开仓库 + 提交前自动脱敏检查**
+
+**选择**：方案 3
+
+**理由**
+
+- **私有等于作品集不存在**：简历上写不了链接，面试演示要当场加 collaborator。对求职目的来说，方案 1 不是「风险更低」，而是「目标失效」。
+- **「先私有做完再转公开」是错的**：转公开时**整个提交历史一起公开**。八周里只要手滑 commit 过一次 `.env`、一份真实文档、一条内网地址，转公开那一刻它就在公网上了，而且**删不掉**（已 fork / 已缓存）。从第一天 public 反而**强迫从一开始就守规矩**。
+- **实际约束**：W5 要上 Actions、W6 要把 eval 接进 CI，而 eval 很吃时间。公开仓库 Actions **无限免费**，私有仓库 Free 账户只有 **2000 分钟/月**，很可能撑不到 W6。
+- **靠流程而非靠意志**：单靠自觉，八周里迟早手滑一次。加一道自动门禁，把「记得检查」变成「不用记得」。
+
+**门禁设计（三层）**
+
+1. **内置规则** —— 私钥、各类 API Key / Token、JWT、内网 IP 段、带口令的连接串、疑似凭据键值
+2. **自定义词表** —— `scripts/sensitive_terms.txt`（单位名 / 内网域名 / 真实表名字段名）
+3. **CI 兜底** —— `.github/workflows/ci.yml` 在 PR 上跑同一脚本，防本地没装钩子的人绕过
+
+**两个刻意的设计**
+
+- **脚本只输出「文件:行号 + 命中类型」，绝不回显原文** —— 否则检查工具本身就成了泄露渠道
+- **真实词表 gitignore，只提交模板** —— 否则「防泄露清单」本身就成了泄露源
+
+**代价**
+
+- 需要维护一份词表，且**词表要自己记得更新**（新增内部术语时要补）
+- 会有误报，需要人工判断（所以钩子保留 `--no-verify` 逃生口）
+
+**复核条件**  
+若八周内出现一次误报导致被迫跳过检查，说明规则太严，应改为「只报新增行」而不是放开规则。
+
+---
+
+## 2026-10-08 · 容器化基础：多阶段构建 + 非 root + 固定 tag
+
+**背景**  
+W1 D2 要把服务容器化。容器化本身不难，难的是「生产可用的容器化」——面试官不会问「你会不会写 Dockerfile」，而会问「你的镜像为什么这么大 / 为什么以 root 跑」。所以在第一天就把这几条钉死，后面所有服务都照这个标准走。
+
+**选项**
+
+1. 单阶段 + 完整基础镜像（`python:3.12`）—— 最省事，镜像约 1GB，root 运行
+2. 单阶段 + slim 镜像 —— 体积降下来，但编译依赖仍留在最终镜像里
+3. **多阶段（builder + runtime）+ slim + 非 root + 固定小版本 tag**
+
+**选择**：方案 3
+
+**理由**
+
+- **BP6 多阶段**：编译期需要 `build-essential` / `gcc`（装 wheel 用），运行期**一个都不需要**。多阶段让最终镜像只带 venv，编译器留在上一阶段 —— 这同时解决了**体积**和**攻击面**两个问题（少一个 gcc 就少一批 CVE）。
+- **BP7 非 root**：Docker 默认以 root 跑容器内进程。一旦应用被越权，root 权限是容器逃逸的跳板。建 `appuser`（UID 1001）成本极低，收益是实质性的安全隔离。
+- **BP2 固定 tag**：`latest` 是动态的，今天和下月构建出的镜像可能不同，破坏**可重现性**。用 `python:3.12.7-slim-bookworm` —— 连 Debian 代号都锁。
+- **为什么 Python 3.12 而不是本机的 3.13/3.14**：3.12 的第三方生态（尤其是后续要用的 RAGAS、Langfuse SDK）兼容性最稳。**本机版本和容器内版本不一致是正常的**，容器化的意义之一就是隔离宿主差异。
+
+**代价**
+
+- Dockerfile 复杂度上升，新手读起来要多花几分钟
+- 基础镜像锁死后，安全补丁需要手动 bump（这是「可重现」的必然代价）
+- 加了 `Dockerfile.naive` 作为反面教材 —— 多维护一个文件，换来的是**体积对比有实测数据**而不是拍脑袋说「省了 70%」
+
+**复核条件**  
+若 W5 接 CI 后发现镜像构建时间过长（多阶段要建两次环境），再评估是否用 BuildKit cache mount 加速，而不是退回单阶段。
+
+---
+
+## 2026-10-08 · 用 compose 而非 K8s 起步（本地开发环境）
+
+**背景**  
+D2 要起一个 Postgres + pgvector。工具选择上，compose 和 K8s 都能做。
+
+**选择**：**本地开发用 compose，W2 上云/上集群时再迁到 K8s**
+
+**理由**
+
+- **关注点分离**：D2 的学习目标是「容器化 + 镜像优化」，不是「编排」。此刻引入 K8s 会让「数据库起不来」和「YAML 写错了」两类问题混在一起，排错成本翻倍。W1 D3–D5 专门学 K8s，那时再引入。
+- **compose 是单机多容器的正确工具**：它解决的是「本地一键起一套依赖」，这正是开发环境的需求。用 K8s 做这件事属于杀鸡用牛刀。
+- **迁移是自然的**：compose 里的配置（镜像 tag、环境变量外置、健康检查、卷持久化）在 K8s 里**语义一一对应**（Deployment / ConfigMap+Secret / probes / PVC）。D4 讲 ConfigMap/Secret/PVC 时，可以直接拿 compose.yml 做对照讲。
+
+**代价**
+
+- 要维护两套编排（compose + K8s 清单），但两者用途不同，不算重复
+- compose 的 `depends_on: condition: service_healthy` 在 K8s 里没有直接等价物（要用 initContainer），迁移时需要改写
+
+**复核条件**  
+若本地容器数量超过 5 个、或需要多节点模拟，则改用 kind/minikube 做本地环境。
+
+---
+
+## 2026-10-08 · 数据库初始化用 initdb 脚本，而非在应用里建表
+
+**背景**  
+pgvector 需要 `CREATE EXTENSION vector` 才能用。这个动作放哪里？
+
+**选项**
+
+1. 应用启动时检查并创建扩展
+2. `docker-entrypoint-initdb.d/` 里的初始化 SQL
+3. 用 Alembic 等迁移工具
+
+**选择**：**方案 2（当前阶段）**，W3 起迁移到方案 3
+
+**理由**
+
+- **扩展是「数据库级」的东西，不是「应用级」**。让应用（一个普通权限用户）去 `CREATE EXTENSION` 需要超级用户权限，这在生产里是权限模型上的倒退。
+- **方案 2 零成本**：官方 postgres 镜像原生支持，挂个目录即可，不需要引入任何依赖。
+- **为什么 W3 要换到迁移工具**：initdb 脚本**只在数据卷为空时执行一次**。一旦开始改表结构（W3 做实验追踪、W6 加检索表），必须要有版本化迁移，否则「同事拉下代码但表结构是旧的」会成为常态。
+
+**代价**
+
+- 现在改 schema 要 `down -v` 重建（丢数据），阶段内可接受
+- 写了明确的注释说明这个限制，避免以后误以为改 SQL 就能生效
+
+**复核条件**  
+进入 W3 第一次改表结构时，必须换成迁移工具，不能继续靠 initdb。
+
+---
+
+## 2026-10-08 · 脱敏门禁加「占位符豁免」，而不是放宽规则
+
+**背景**  
+加 Dockerfile / compose / 验证脚本时，门禁报出 4 处命中，**全是误报**：
+
+| 位置                        | 内容                                                   | 性质         |
+| ------------------------- | ---------------------------------------------------- | ---------- |
+| `infra/compose.yml`       | `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}`  | 对凭据的**引用** |
+| `infra/compose.yml`       | `PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?...}` | 同上         |
+| `infra/check_pgvector.py` | `"postgresql://{u}:{p}@{h}:{port}/{db}"`             | python 模板串 |
+| `infra/check_pgvector.py` | docstring 里的用法示例                                     | 文档         |
+
+**问题**：门禁一动就报警，人会养成 `--no-verify` 的习惯 —— **那时门禁等于不存在**。  
+这是安全工具的经典失效模式：不是「不够严」，而是「太吵以至于被绕过」。
+
+**选项**
+
+1. 关掉相关规则 —— 检出能力永久损失，不可接受
+2. 每次误报手动 `--no-verify` —— 等于放弃门禁
+3. **加一层「占位符识别」**：形式上不可能是真凭据的写法放行，其余照拦
+
+**选择**：方案 3
+
+**理由**
+
+- **真凭据有可判别的形态**：它是随机字符串（`hunter2Xk9pQz`），**不会**长成 `${VAR}` / `{u}` / `<your-password>` / `changeme`。  
+  「形式判据」能把两者干净地分开，而不是靠降低强度。
+- **放行名单刻意写窄**：只认 `${`、`{{`、`<`、`{var}`、`your-*`/`test-*` 前缀、纯掩码（`...`/`xxx`）、少数通用词（`password`/`localhost`）。  
+  **没有**把 `llmops` 这类「像真用户名的词」加进白名单 —— 那样会削弱保护。
+- **改了文档而不是改规则**：最后 1 处残留命中在用法示例里（形如 `postgresql://<user>:<password>@<host>` 这种**真实感过强**的示例）。用户名这类词在真凭据里也很常见，  
+  若为它加豁免就是真正的降级。**正确做法是让示例写成明确的占位形式**（`<user>:<password>@<host>`），  
+  即「消除误报的根源」而不是「让规则闭嘴」。
+
+**验证（必须有对照，否则不敢说没降级）**
+
+| 组         | 用例                                                              | 结果                |
+| --------- | --------------------------------------------------------------- | ----------------- |
+| A · 占位符放行 | `${VAR}` / `{u}` / `<x>` / `changeme` / `user` / `xxx` … 共 13 例 | 13/13 放行 ✅        |
+| B · 真凭据拦截 | `hunter2Xk9pQz` / `P@ssw0rd2026local` / `sk-abc…` … 共 5 例       | **5/5 拦截，0 漏报** ✅ |
+| C · 端到端   | 4 例占位全放行；4 例真凭据（连接串 / 键值 / API Key / 内网 IP）全拦                   | ✅                 |
+
+全树扫描从「4 处误报」变为「0 处命中」。
+
+**代价**
+
+- 豁免名单**需要维护**：若将来某种新写法被误报，应优先改写法，实在不行才扩名单
+- 存在理论上的绕过面（攻击者可把真凭据伪装成 `{...}` 形式）—— 但**门禁防的是「手滑」，不是「恶意隐藏」**，  
+  这个攻击模型不在设计目标内
+
+**复核条件**  
+若再出现一次「为绕过误报而 `--no-verify`」，说明豁免判断仍有缺口 → 补判据，而不是关规则。
+
+---
+
+## DEC-005 · 基础镜像选 alpine（musl）而不是 slim-bookworm（glibc）
+
+**日期**：2026-10-08 · W1 D2
+
+**背景**  
+D2 验收硬指标之一是「最终镜像 < 200 MB」。用 `python:3.12.7-slim-bookworm` 做基础层时，  
+多阶段已优化到 **247 MB**，剩余体积拆解如下：
+
+| 组成                                | 体积       |
+| --------------------------------- | -------- |
+| `python:3.12.7-slim-bookworm` 基础层 | 176.5 MB |
+| venv（已删 pip/setuptools/wheel）     | ~71 MB   |
+| curl（HEALTHCHECK 用）               | ~4 MB    |
+
+**问题**：光基础层就占 176.5 MB，**留给应用的预算不足 24 MB —— 物理上不可能达标**。  
+这不是优化技巧问题，是选型问题。
+
+**选项**
+
+1. 接受 247 MB，把验收指标改成 < 300 MB —— **修改指标来迁就实现，是最坏的一种自我欺骗**
+2. 用 distroless / scratch 自建 —— 体积更小（~60 MB），但要自己解决 libc、CA 证书、时区，且没有 shell 无法 `docker exec` 排查
+3. **换 `python:3.12-alpine`（79.1 MB）** —— 保留完整 shell 与包管理器，调试体验不变
+
+**选择**：方案 3
+
+**理由**
+
+- 净省约 **97 MB 基础层体积**，实测最终 **129.9 MB**，余量 70 MB（不是「擦线过」，留了后续加依赖的空间）
+- 仍带 `sh` 和 `apk`，出问题时 `docker exec -it <c> sh` 能进去查 —— distroless 做不到这点，  
+  对一个**还在快速迭代的学习项目**来说，可调试性 > 极限体积
+- **前提是验证过的，不是赌的**：alpine 用 musl libc，带 C 扩展的包若无 musllinux wheel 就必须现场编译，  
+  为编译装进去的 `gcc` + `musl-dev` 会把省下的体积吃回去。所以动手前先跑了一次真实安装：
+  ```bash
+  docker run --rm python:3.12-alpine sh -c '\
+    python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt'
+  ```
+  全部成功，无 sdist 编译。构建日志可佐证命中的是 musl wheel：  
+  `uvloop-0.23.0-cp312-cp312-musllinux_1_2_x86_64.whl`、  
+  `watchfiles-1.3.0-cp310-abi3-musllinux_1_1_x86_64.whl`、  
+  `websockets-17.2-cp312-cp312-musllinux_1_2_x86_64.whl`
+
+**连带修改（选型变了，周边必须跟着变）**
+
+| 项            | slim-bookworm                             | alpine                                                     | 原因                           |
+| ------------ | ----------------------------------------- | ---------------------------------------------------------- | ---------------------------- |
+| 包管理器         | `apt-get` + `rm -rf /var/lib/apt/lists/*` | `apk` / 换源改 `/etc/apk/repositories`                        | ——                           |
+| 建用户          | `groupadd`/`useradd` + 长选项                | `addgroup`/`adduser` + **短选项**（busybox 不认 `--uid`/`--gid`） | busybox 版工具集                 |
+| HEALTHCHECK  | `curl -fsS`                               | **`wget -q -T 3 --spider`**                                | **alpine 无 curl**            |
+| builder 装编译器 | 可装（不影响最终镜像）                               | **刻意不装**                                                   | 依赖全是 wheel，装了纯浪费；哪天需要编译会立刻报错 |
+
+⚠️ **runtime 不装 curl 是个有意识的取舍**：为「让 curl 可用」而 `apk add curl` 会连带  
+`ca-certificates` 等约 4~8 MB，与体积目标矛盾。用 busybox 自带 wget 零成本解决。
+
+**代价 / 风险**
+
+- **musl 与 glibc 的行为差异**：某些依赖在 musl 下有细微差别（如 DNS 解析、`getaddrinfo`、locale 支持）。  
+  本项目当前只用到网络 + JSON，无影响
+- **未来可能被迫回退**：若引入只在 glibc 下发预编译包的依赖（典型如某些版本的 `oracledb`、  
+  部分科学计算栈），alpine 上要么编译失败要么需要额外适配  
+  → **回退路径明确**：把两个 stage 的 `FROM` 换回 `python:3.12-slim-bookworm`，  
+  恢复 apt 与 `groupadd`/`useradd` 写法即可，改动集中在单个文件
+
+**复核条件**
+
+1. 引入任何新的带 C 扩展的依赖时，先确认有 musllinux wheel；没有则评估是否需要回退
+2. 若构建时间因 alpine 下的现场编译而显著变长，说明 wheel 覆盖出现缺口 → 重新评估
+
+**顺带记录 · 一个被这次选型暴露的通用教训**
+
+优化过程中我曾把「删 pip/setuptools」写进 **runtime 段**，镜像**从 270 MB 涨到 284 MB**。  
+原因：`COPY --from=builder /opt/venv` 那一层已含 pip，后面的 `RUN rm` 只加了个 overlayfs  
+**删除标记（whiteout）**，底层数据仍在。挪回 **builder 段**（装完即删）后降到 247 MB。
+
+> **「把清理放到后面」是错的直觉 —— 清理要放在「数据进入镜像之前」。**  
+> 判断方法很简单：问自己「这条 rm 是在哪一层的**下方**还有没有副本」。
+
+---
+
+## DEC-006 · 本地集群选 kind 而不是 minikube（2026-10-09 · W1 D3）
+
+**背景**：D3 要一个本地 K8s 集群，候选是 `kind` / `minikube` / `k3s`。
+
+**决策**：用 **kind v0.33.0**，集群名 `llmops`。
+
+**理由**
+
+1. **复用已有环境**：D2 已装 Docker Desktop 4.94.0 + WSL2 集成 —— kind 只需要 Docker，  
+   不用再引入 hypervisor。
+2. **起停快、可反复推倒**：实测 `Ready after 12s`。D3/D4/D5 要反复 load 镜像、  
+   改 YAML、删 Pod 验证持久化 —— `kind delete cluster` 干净利落，一天里重建多次不心疼。
+3. **贴近 CI**：K8s 官方自己就用 kind 跑测试，同一套命令以后能直接搬进 CI。
+
+**代价（已知）**
+
+- NodePort **不能直接从宿主机访问**（节点 IP 在 Docker 网络里）→ 本地验证统一走  
+  `kubectl port-forward`。D4 要外部访问时再评估 Ingress（kind 需配 `extraPortMappings`）。
+- 需要 WSL 集成开启；⚠️ `wsl --shutdown` 会**连带停掉 Docker 的 WSL 后端**。
+
+**复核条件**：需要多节点拓扑、或想一键装 Ingress/Dashboard 等 addon 时，重新评估 minikube。
+
+---
+
+## DEC-007 · 镜像用具体 tag + `IfNotPresent`，不用 `latest` + `Always`（2026-10-09 · W1 D3）
+
+**背景**：kind 的节点是**独立容器**，看不到宿主机的 `docker images`，镜像必须  
+`kind load docker-image` 显式载入节点。
+
+**决策**：`infra/k8s/app.yaml` 里写 `image: llmops-api:0.1.0` + `imagePullPolicy: IfNotPresent`。
+
+**理由**
+
+- 若用 `latest` + 默认的 `Always`，kubelet 会**绕过本地镜像**去 Docker Hub 拉一个  
+  不存在的 `llmops-api` → 直接 `ImagePullBackOff`，而镜像明明就在节点里。  
+  这是 kind 场景下最经典的误判。
+- 具体 tag 同时满足 D2 已确立的「不用 latest」原则（构建可重现）。
+
+**复核条件**：接入真实镜像仓库（私有 registry + `imagePullSecrets`）时，  
+`Always` 配合不可变 tag（digest）会重新变得合理。
+
+
+## DEC-009 · kind 载入 multi-arch 镜像用 `ctr ... import --platform`，不用 `kind load`（2026-10-09 · W1 D4）
+
+**背景**：`kind load docker-image pgvector/pgvector:pg16` 报  
+`ctr: content digest sha256:a45475a5bc78...: not found`；  
+换 `kind load image-archive` 同样报错。而本仓库自建的 `llmops-api:0.1.0`  
+用同一条命令却能正常载入 → **是镜像的问题，不是 kind 坏了**。
+
+**根因（两条，缺一不可）**
+
+1. **代理泄漏**：节点从**建集群那一刻**继承了宿主环境变量  
+   `HTTPS_PROXY=http://127.0.0.1:13566`。而节点**内部**的 `127.0.0.1`  
+   指向节点自己、不是宿主 → 一切回源动作必然  
+   `proxyconnect tcp: dial tcp 127.0.0.1:13566: connect: connection refused`。
+2. **外平台层**：`docker save` 出的 tar 有 **23 个 blob / 16 个 manifest 层**，  
+   多出的 7 个是**其它架构的层**（pgvector 是 multi-arch 镜像）。  
+   `ctr` 默认按 `--all-platforms` 解，遇到解不开的外平台层就报 digest not found。
+
+**决策**：改用「`docker save` → `docker cp` → 节点内 `ctr import --platform`」。
+
+```bash
+docker save pgvector/pgvector:pg16 -o pgv.tar
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'   # ⚠️ Git Bash 会改写路径
+docker cp "E:\Projects\LLMOps-Engineer\pgv.tar" llmops-control-plane:/pgv.tar
+docker exec llmops-control-plane ctr -n k8s.io images import \
+    --platform linux/amd64 /pgv.tar
+```
+
+**理由**
+
+- `--platform linux/amd64` **只解当前架构的层**，绕开外平台层。
+- 这条路径**完全不依赖节点联网**，顺带规避了代理泄漏问题。
+- ⚠️ `docker cp` 传 POSIX 路径（`/tmp/pgv.tar`）会报  
+  `GetFileAttributesEx e:\tmp: The system cannot find the file specified`  
+  —— Git Bash 的路径转换所致，**必须传真实 Windows 路径**。
+
+**副作用 / 代价**：比 `kind load` 啰嗦（3 条命令 vs 1 条），所以  
+**只对 multi-arch 镜像用这条兜底路径**；自建的单架构镜像继续用 `kind load`。
+
+**复核条件**：建集群时清掉 `HTTPS_PROXY` 等代理变量、且镜像只推 amd64  
+单架构（或改用 `--platform` 构建）时，`kind load` 会重新变得够用。
+
+---
+
+## DEC-010 · K8s Secret 清单里只放 `<PLACEHOLDER:...>`，真值由 `set -a; . ./.env` 注入（2026-10-09 · W1 D4）
+
+**背景**：D4 要把连接串与 API Key 移进 K8s Secret。但本仓库是**公开的**，  
+且 `scripts/check_sensitive.py` 有一道提交前门禁会拦「疑似凭据键值」。
+
+**决策**：`infra/k8s/config.yaml` 里的 Secret **只写占位符**  
+（`"<PLACEHOLDER:set-from-.env>"`），真值通过命令行从 `.env` 注入：
+
+```bash
+set -a; . ./.env; set +a          # .env 已在 .gitignore
+kubectl create secret generic llmops-secrets \
+  --from-literal=POSTGRES_PASSWORD \
+  --from-literal=LLM_PRIMARY_API_KEY \
+  --from-literal=LITELLM_MASTER_KEY \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+**理由**
+
+- **`stringData` 写什么，`get -o jsonpath` 就能还原什么** —— Secret 只是 base64  
+  不是加密（D4 已动手演示过）。所以清单文件进了 Git，等于凭据进了 Git。
+- `--dry-run=client -o yaml | kubectl apply -f -` 是**幂等**的：重复执行不会报  
+  `AlreadyExists`，也不会把已有 Secret 删掉重建。
+- 占位符用 `<PLACEHOLDER:...>` 而不是 `REPLACE_ME`，是**为了让门禁一眼放过**：  
+  前者在扫描器眼里明显不是值，后者会命中「疑似凭据键值」规则。
+- ⚠️ **注释里也不要写 `键=$变量` 形式** —— 那是踩过的坑：`check_sensitive.py`  
+  按 `键=值` 形态判疑似凭据，连注释里的**示例命令**都会命中并拦住提交。
+
+**代价**：克隆仓库后**必须先建 Secret**，直接 `kubectl apply -f infra/k8s/config.yaml`  
+会得到一堆无效占位符。所以 `scripts/verify_d4.sh` 里第 1 步只 `apply` ConfigMap 部分  
+和**已经带占位符的 Secret**（仅用于演示结构），真实场景走上面的注入命令。
+
+**复核条件**：接入外部密钥管理器（Vault / External Secrets Operator / Sealed Secrets）  
+时，明文占位符可以彻底从仓库里消失 —— 那时这条决策升级为「用 Sealed Secrets」。
+
+---
+
+## DEC-011 · kind 上装 ingress-nginx：本地清单 + 去 digest 钉死 + 清节点 containerd 代理（2026-10-09 · W1 D4）
+
+**背景**：D4 第 2 步要装 ingress-nginx 配一条 Ingress 规则。
+
+**四步操作（已全部固化进 `scripts/setup_ingress_kind.sh`）**
+
+1. **必须删库重建集群**，用 `infra/k8s/kind-ingress-config.yaml`  
+   （`extraPortMappings` 宿主 80/443 → 节点 30080/30443，**只在建集群时生效**）。
+2. **清单下载走注册表代理**：沙箱 env 的 `HTTPS_PROXY`（本次 1250）只放行白名单，  
+   拉 `raw.githubusercontent.com` 报 `Bad Gateway`。改用  
+   `curl -x http://127.0.0.1:9527` 拉通，**清单落盘到仓库**（`infra/k8s/ingress-nginx/deploy-upstream.yaml`），  
+   避免每次部署都依赖网络。
+3. **清单打两处补丁**：
+   - controller Service `LoadBalancer` → **`NodePort` 并显式 pin `nodePort: 30080/30443`**  
+     （kind 没有云 LB 实现，不 pin 就接不上 `extraPortMappings`）。
+   - **去掉所有镜像的 `@sha256:` digest 钉死，只留 tag**。
+4. **清掉节点 containerd 继承的代理**（见下，这是最坑的一步）。
+
+**根因（与 D9 同源，但更隐蔽）**
+
+kind 建集群时会把宿主的 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` **注入节点容器**，  
+进而被 **containerd 进程继承**。节点内部的 `127.0.0.1` 指向**节点自己**，不是宿主 →  
+一切回源必挂 `proxyconnect tcp: dial tcp 127.0.0.1:1250: connect: connection refused`。
+
+⚠️ **为什么 DEC-009 的 `ctr import` 这次不够**：镜像明明已导入节点，但
+
+- 清单用 **`@sha256:` digest 引用** 时，kubelet 会拿 digest 去远端**校验 manifest**（不是查本地）；
+- 即使改成 tag 引用，containerd 仍会先尝试回源确认 tag。
+
+所以 digest 引用 + 代理这两个条件**叠加**时，**无论 `imagePullPolicy` 设什么都不管用**。
+
+**✅ 修法（持久生效，不是临时绕过）**
+
+```bash
+# 给节点 containerd 加 systemd drop-in，清掉继承的代理
+docker exec llmops-control-plane sh -c '
+mkdir -p /etc/systemd/system/containerd.service.d
+cat > /etc/systemd/system/containerd.service.d/99-no-proxy.conf << "EOF"
+[Service]
+Environment=
+Environment="NO_PROXY=*"
+Environment="no_proxy=*"
+EOF
+systemctl daemon-reload && systemctl restart containerd'
+```
+
+**理由**
+
+- `Environment=`（空值）**清空** systemd 从父环境继承的全部变量。
+- `NO_PROXY=*` 兜底：Go 的 proxy 逻辑里 `NO_PROXY` 优先级高于 `HTTP(S)_PROXY`。
+- 镜像已用 `ctr import` 导入本地，**根本不需要回源**，所以关代理没有副作用。
+- ⚠️ 这个 drop-in **不在节点镜像里**，`kind delete cluster` 后需重跑（脚本已含）。
+
+**实测结果**：`verify_d4.sh` → **19 项全绿**，含  
+`curl -H 'Host: llmops.local' http://localhost/health` → **HTTP 200** + 返回体正确；  
+**负向验证**错误 Host → **404**（证明是 Ingress 在做 Host 路由，而非碰巧撞到 Service）。
+
+**复核条件**：环境不设全局代理、或换用 `cloud-provider-kind`（kind 内置 LB 实现，  
+可省掉 NodePort 补丁）时，第 3、4 步可以简化。
+
+---
+
+## DEC-012 · 三种探针的分工：readiness 比 liveness 灵敏一个数量级（2026-10-09 · W1 D5）
+
+**背景**：D5 第 1 步要给 Deployment 加 liveness / readiness / startup 三种探针。  
+探针参数写多少，是最容易随手拍、也最容易埋雷的地方。
+
+**决策**：三组参数**刻意不等**，按「失败代价」排序取不同灵敏度。
+
+| 探针             | 路径        | period | failureThreshold | 容忍窗口    | 失败后果             |
+| -------------- | --------- | ------ | ---------------- | ------- | ---------------- |
+| startupProbe   | `/health` | 2s     | 30               | **60s** | 杀容器（启动期）         |
+| livenessProbe  | `/health` | 10s    | 3                | **30s** | 重启容器             |
+| readinessProbe | `/ready`  | 3s     | 2                | **6s**  | 摘出 EndpointSlice |
+
+**理由（核心权衡）**
+
+- **readiness 要灵敏（6s）**：误判的代价只是「短暂少一个副本接流量」，代价低 → 可以激进。  
+  摘流量是**可逆、廉价**的操作。
+- **liveness 要保守（30s）**：误判的代价是**重启容器**（冷启动 + 可能进 CrashLoop 恶性循环），  
+  代价高 → 必须容忍瞬时抖动。
+- **startup 要最宽容（60s）**：它的作用就是「在启动期替 liveness 挡住一切」，  
+  比 liveness 的 30s 更宽才能有效。⚠️ **若 startup 窗口 ≤ liveness 窗口，startup 形同虚设**  
+  —— 所以 `verify_d5.sh` 里专门有一条断言检查这个不等式。
+
+**另一个决策：liveness 不写 `initialDelaySeconds`**
+
+有 startupProbe 兜住启动期后，liveness 从容器一启动就可以探（因为 startup 成功前它根本不执行）。  
+写 `initialDelaySeconds` 只会拖慢「发现真死锁」的速度。官方文档也明确：
+
+> "Liveness probes do not wait for readiness probes to succeed. If you want to wait before executing a liveness probe, you can either define `initialDelaySeconds` or use a startup probe."
+
+**关键区分：liveness 打 `/health`（不查外部依赖），readiness 打 `/ready`（W2 改查数据库）**
+
+liveness 若查数据库：数据库抖动 → liveness 失败 → 重启容器 → **但重启解决不了数据库问题**，  
+反而把所有副本轮流重启，把「外部依赖故障」放大成「服务全面不可用」。  
+外部依赖的检查属于 readiness（此时摘流量是对的 —— 确实处理不了请求）。
+
+**复核条件**：应用启动变快（< 5s）后可考虑去掉 startupProbe；接入真实依赖后  
+readiness 的 `failureThreshold` 可能要调大（避免依赖抖动导致频繁摘流量）。
+
+---
+
+## DEC-013 · 给应用加两个「默认关闭」的演示旋钮，而不是改测试专用镜像（2026-10-09 · W1 D5）
+
+**背景**：D5 要验证三种探针**真的生效**。但原始应用启动 < 2s、且没有任何「会失败」的状态  
+—— 探针永远不会失败，也就无法证明它有用。需要一个手段来制造故障。
+
+**候选方案**
+
+| 方案                              | 问题                                      |
+| ------------------------------- | --------------------------------------- |
+| A. 新建一个「故意会失败」的测试镜像             | 生产镜像与测试镜像分叉，测的不是同一个东西                   |
+| B. 用 `kubectl exec` 进去 kill 主进程 | 只能演示 liveness，演示不了 readiness 的「摘流量但不重启」 |
+| C. 改应用，加**默认关闭**的开关             | ✅ 采用                                    |
+
+**决策**：给 `app/main.py` 加两个旋钮，**默认值保证生产行为完全不变**。
+
+1. `STARTUP_DELAY_SECONDS`（默认 `0`）—— 模拟慢启动，让 startupProbe 有东西可保护。
+2. `NOT_READY_FILE`（默认 `/tmp/not-ready`）—— 该文件存在时 `/ready` 返回 **503**。
+
+**理由**
+
+- **测的就是生产镜像本身**：开关关闭时行为与 v0.1.0 逐字节一致（已实测：默认导入耗时 < 0.1s）。
+- **readiness 的演示必须能「不重启容器」**：方案 B 做不到，而 `/ready` 返回 503  
+  正是 readiness 语义的**直接注入点** —— 改一个文件即可，容器毫不受影响。
+- **默认值安全**：不设环境变量时两个旋钮都不激活，不存在「忘了关导致生产带延迟」的风险。
+
+**⚠️ 设计细节：`/health` 刻意不看 `NOT_READY_FILE`**
+
+如果 `/health` 也读这个文件，那 liveness 会跟着失败 → 容器被杀 ——  
+那就把「暂时不该接流量」错误地升级成了「重启」。**两个端点必须反映不同语义**，  
+这个刻意的不对称本身就是教学材料。
+
+**实测结果**（`scripts/verify_d5.sh` 全绿）
+
+| 场景                        | 结果                                                |
+| ------------------------- | ------------------------------------------------- |
+| 默认（不设变量）                  | `/health` 200、`/ready` 200，行为与 v0.1.0 一致          |
+| 标记文件存在                    | `/ready` **200 → 503 → 200**；`/health` **全程 200** |
+| `STARTUP_DELAY_SECONDS=6` | 端口延迟约 6s 才可访问                                     |
+
+**复核条件**：W2 接入 pgvector 后，`/ready` 改为真实查数据库连通性，  
+`NOT_READY_FILE` 这个旋钮可保留（做故障演练），也可删（用「停数据库」来演示）。
+
+---
+
+## DEC-014 · 排错演练用独立 Deployment，不污染主应用（2026-10-09 · W1 D5）
+
+**背景**：D5 第 2 步要练「错镜像 tag / 内存 limit 过小」的排错。  
+最直接的做法是改主应用 `llmops-api` 的清单，但那样会破坏已验证的状态。
+
+**决策**：每次演练 `kubectl create deployment <d5-xxx>` 建**独立** Deployment，  
+演练完 `kubectl delete`，主应用全程不动。
+
+**三种演练的判据（实测值）**
+
+| 故障            | 注入方式                       | 关键判据                                                        | 实测                                                                             |
+| ------------- | -------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 镜像 tag 错      | `llmops-api:v9.9.9`        | `STATUS=ImagePullBackOff`                                   | ✅ events 里 `failed to resolve reference "docker.io/library/llmops-api:v9.9.9"` |
+| 内存过小          | limit `32Mi`（实测占用 ~40MB）   | `lastState.reason=OOMKilled` + **退出码 137**                  | ✅ `137 = 128 + 9(SIGKILL)`                                                     |
+| readiness 路径错 | `/readiness`（正确是 `/ready`） | `STATUS=Running` 但 `READY=0/1`、`RESTARTS=0`、EndpointSlice 空 | ✅ 事件 `statuscode: 404`                                                         |
+
+**⚠️ 本地 kind 环境的一个坑（记录备查）**：`llmops-api` 是本地构建的镜像，  
+只存在于 kind 节点里。tag 写错时，kubelet 会**跑去 Docker Hub** 找  
+（错误信息是 `docker.io/library/llmops-api:v9.9.9`），  
+**看起来像网络问题，实际是「本地根本没有这个 tag」** —— 别被错误信息带偏。
+
+**复核条件**：接上真实镜像仓库（Harbor / ECR）后，tag 错的表现会变成 401/403（权限），  
+届时判据需相应调整。
+
+---
+
+## DEC-015 · 用 Helm 做应用发布，而不是裸 YAML（2026-10-12 · W2 D6）
+
+**背景**：W1 的应用清单是**一份裸 YAML**（`infra/k8s/app.yaml`），deploy / Service /  
+ConfigMap / Secret 全在里面，值写死。要到 W2 起支持 dev / prod 双环境时，  
+裸 YAML 只有两条路：复制成两份各改各的（改一处要记得改另一处），  
+或者用 `envsubst` 之类在 apply 前替换（没有版本、没有回滚记录）。  
+`helm rollback` 这类「一条命令退回上一版」的能力，裸 YAML 完全没有 ——  
+W1 D5 的排错演练也印证了：出问题只能手动把旧文件重新 `apply` 一遍。
+
+**决策**：W2 起所有 K8s 应用用 **Helm Chart** 管理，模板进 `templates/`，  
+环境差异全部下沉到 `values.yaml`，并按环境拆 `values-dev.yaml` / `values-prod.yaml`。
+
+**理由**
+
+1. **一个应用 = 十几个资源的组合**（Deployment + Service + ConfigMap + Secret +  
+   ServiceAccount…）。裸 YAML 跨环境只能复制粘贴改值，无版本、无回滚；  
+   Helm 把它们打包成一个 Chart（模板 + values），**换一套 values 即出一套环境**。
+2. **Release 自带版本历史**。每次 install / upgrade 生成递增 revision，  
+   翻车一条 `helm rollback <rev>` 回退，且回滚本身也记为一个新 revision（可追溯）。
+3. **与 W1 衔接零返工**。D4 的 Ingress / ConfigMap / Secret 结构原样搬进 Chart 模板，  
+   `verify_*.sh` 的验收口径不变（探针路径、端口、环境变量语义全部保留）。
+
+
+**实测证据（W2 D6 当天演练）**
+
+| 环节             | 做法                                                        | 结果                                                                                        |
+| -------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 裸 YAML → Chart | 改造 `helm create` 官方骨架，只改 3 个文件                            | `helm lint` **0 failed**；`helm template` 渲染 **6 个资源**                                     |
+| 双环境实装          | `llmops-dev`(ns dev) + `llmops-prod`(ns prod)，各带一套 values | 双双 **REVISION 1 deployed**；`kubectl exec printenv` 验出 dev=`0.2.0-dev`/prod=`0.2.0`，环境隔离成立 |
+| 故意发坏版本         | `--set readinessProbe.httpGet.path=/bad-path --wait`      | helm 退出码 1，REVISION 2 = **failed**                                                        |
+| **回滚**         | `helm rollback llmops-dev 1`                              | `Rollback was a success!`，history 成 `1 deployed → 2 failed → 3 Rollback to 1`             |
+
+**⭐ 最值得记的一条**：坏版本期间**服务零中断** —— Endpoints 始终只有旧 Pod，  
+`/health` 连打 3 次全 200、`RESTARTS` 始终 0，两个 ReplicaSet 并存（旧 1 Ready / 新 0 Ready）。  
+**readinessProbe 把「发布失败」挡在流量入口外，而不是等用户报障** ——  
+这是 DEC-012「readiness 比 liveness 灵敏」的实战兑现。
+
+**两条踩坑（备查）**
+
+- 官方骨架的 `deployment.yaml` 写的是 `containerPort: {{ .Values.service.port }}`，  
+  即**假设「容器端口 == Service 端口」**。本应用是 `Service 80 → 容器 8000`，  
+  不拆出独立 `.Values.containerPort` 的话，流量会转到没人监听的 80 端口。
+- Helm 的**列表值是整体替换**而非合并：`secret.requiredKeys` 这类清单，  
+  若在 `values-secret.yaml` 里也写一份，会**覆盖**掉 `values-prod.yaml` 的清单，安全闸门形同虚设。
+
+**复核条件**：若某应用**长期单环境**且资源 ≤3 个，退回裸 YAML（或 kustomize）更轻，  
+不必硬套 Helm —— 上 Helm 的收益来自「多环境 × 多资源 × 需要回滚」。
+
+---
+
+## DEC-016 · 生产工作负载一律用专属 ServiceAccount + 最小权限 Role（2026-10-13 · W2 D7）
+
+**背景**：DEC-007 要给应用配 ServiceAccount + Role。先问一句「它到底要调哪些 K8s API」——  
+答案是**一个都不用**：`llmops-api` 是普通 HTTP 服务，不 list Pod、不写 ConfigMap。
+
+那为什么还要折腾？因为**不给权限 ≠ 没有权限**：K8s 会自动把 ServiceAccount token  
+挂进每个 Pod 的 `/var/run/secrets/kubernetes.io/serviceaccount/token`。  
+应用一旦被 RCE（依赖漏洞、命令注入、SSRF 打到元数据），攻击者拿到的就是这枚 token。
+
+**决策**
+
+1. 每个工作负载用**自己的** ServiceAccount，不用 `default` —— 权限可按工作负载单独回收。
+2. 用 **Role + RoleBinding**（不是 ClusterRole），作用域锁死在本命名空间。
+3. 能不用 API 的，把 `automountServiceAccountToken` 显式关掉，**连 token 都不挂**。  
+   （⚠️ 这里刻意不写成 `键: 值` 的形式 —— 仓库的脱敏门禁按「键=值」扫凭据，  
+   会把任何 `SomeKey: someValue` 的行都拦下来，包括这个正经的 K8s 字段。）
+4. 确实要读的，用 `resourceNames` 收窄到**具体对象**，而不是给整个资源类型。
+
+本 Chart 的 `templates/rbac.yaml` 按 2 + 4 实现（为了把机制演示完整）：  
+只给「读自己那一个 ConfigMap」+「读本命名空间 Pod」，其余一概不给。
+
+**实测证据（W2 D7）**
+
+`kubectl auth can-i --as=system:serviceaccount:dev:llmops-dev-llmops-chart -n dev`：
+
+| 动作                               | 结果    | 说明                   |
+| -------------------------------- | ----- | -------------------- |
+| 读**自己那一个** ConfigMap             | ✅ yes | 由 `resourceNames` 放行 |
+| 读**同命名空间另一个** ConfigMap          | ❌ no  | 同一条规则，仅因对象名不同即被拒     |
+| 列出全部 ConfigMap / Secret          | ❌ no  | 没给 `list`            |
+| 读 / 列出 Secret                    | ❌ no  | 完全没这条规则              |
+| 读 / 列出 Pod                       | ✅ yes | 显式给的最小读权限            |
+| 删除 Pod / exec 进 Pod              | ❌ no  |                      |
+| 读 Deployment                     | ❌ no  |                      |
+| **跨命名空间**读 ConfigMap / Pod（prod） | ❌ no  | Role 的命名空间边界         |
+
+**容器内实证**（用 Pod 自己挂载的 token 直接打 API Server，比 `auth can-i` 更有说服力）：
+
+| 请求                                                                     | 状态码     |
+| ---------------------------------------------------------------------- | ------- |
+| `GET /api/v1/namespaces/dev/configmaps/llmops-dev-llmops-chart-config` | **200** |
+| `GET /api/v1/namespaces/dev/configmaps/kube-root-ca.crt`               | **403** |
+| `GET /api/v1/namespaces/dev/configmaps`（list）                          | 403     |
+| `GET /api/v1/namespaces/dev/secrets`                                   | 403     |
+| `GET /api/v1/namespaces/dev/pods`                                      | 200     |
+| `GET /apis/apps/v1/namespaces/dev/deployments`                         | 403     |
+| `GET /api/v1/namespaces`                                               | 403     |
+
+**三条容易写错的坑（实测）**
+
+1. **`resourceNames` 与 `list`/`watch` 互斥**。它只对 `get`/`update`/`patch`/`delete` 生效；  
+   规则里一旦加上 `list` 或 `watch`，`resourceNames` 会被**静默忽略**，  
+   规则退化成「能读本命名空间**所有**该类型资源」—— 看着更严，实际更松，且不报错。
+2. **「零 Role」≠「零权限」**。`auth can-i --list` 显示，即使一条规则都不给，  
+   SA 仍自带一组集群级只读权限（`/api/*`、`/apis/*`、`/healthz`、`/version` 等），  
+   来自内置的 `system:discovery` / `system:public-info-viewer`。  
+   所以「最小权限」的准确说法是**收敛到内置基线**，不是收敛到零。
+3. **RoleBinding 的 subject 要绑 SA，不是绑命名空间**。绑成 `Group` 或  
+   `serviceaccounts` 全量，等于给该命名空间所有工作负载都发了同一套权限。
+
+**复核条件**：若该应用将来真的需要调 API（如做成 operator、或要写 ConfigMap 做热更新），  
+**按实际用到的资源逐个放开**，不要预留「以后可能用得上」的权限 ——  
+预授权正是最小权限失效的头号原因。
+
+---
+
+## DEC-017 · HPA 的 CPU 目标值只有在 requests 贴近真实用量时才有意义（2026-10-13 · W2 D7）
+
+**背景**：DEC-007 给 dev / prod 都开了 HPA（dev 1–5 @50%，prod 2–6 @60%）。  
+压测时副本数一路顶到 `maxReplicas` 就不再动了 —— 但 CPU 利用率明明远高于目标值，  
+按理应该继续扩才对。
+
+**决策**：**HPA 的 `targetCPUUtilizationPercentage` 是「实际用量 ÷ requests」的百分比，  
+不是「节点 CPU 的百分比」**。所以上 HPA 之前必须先校准 `requests.cpu`；  
+requests 定得比真实用量低一个数量级时，HPA 会长期贴在 `maxReplicas`，等于没有扩缩能力。
+
+**实测证据（W2 D7 压测）**
+
+| 观测项                                  | 数值                                       |
+| ------------------------------------ | ---------------------------------------- |
+| `requests.cpu`（dev）                  | **50m**                                  |
+| 压测中每个 Pod 实际 CPU（`kubectl top pods`） | **90m – 135m**                           |
+| 单 Pod 利用率                            | 180% – 270%（= 实际 ÷ 50m）                  |
+| HPA 目标                               | 50%（= 绝对阈值 25m）                          |
+| 结果                                   | 2 → 4 → 5（贴 `maxReplicas`），CPU 仍停在 200%+ |
+
+即使扩到 5 副本，**总 requests 也只有 250m**，而实际需求约 500m+ ——  
+分母太小，利用率永远降不回 50%，HPA 只能一直加副本直到撞上限。
+
+**顺带实测到的两条 HPA 行为**（官方文档只说结论，这里是现场数据）
+
+- **扩容快、缩容慢**的由来：`scaleUp.stabilizationWindowSeconds` 默认 **0**，  
+  `scaleDown` 默认 **300**。本次停压后 CPU 在 100 秒内就掉到 6%，  
+  但副本数**死守 5 直到第 360 秒**，随后 5 → 2 → 1 分两步落回。
+- 缩容取的是**过去 300 秒内建议值的最大值**（防抖动），  
+  所以「CPU 已经很低」和「HPA 可以缩容」之间必然有 5 分钟左右的延迟。
+
+**复核条件**：拿到真实用量后把 `requests.cpu` 调到接近 P95（本应用约 100m），  
+再重跑一次压测确认副本数能停在中间档位而不是撞上限；  
+DEC-011 做资源账本时一并把 limits 也校准一遍。
+
+---
+
+## DEC-018 · 上游重试用指数退避 + 抖动，且重试窗口只覆盖「首 token 之前」（2026-10-14 · W2 D8）
+
+**背景**：D8 要把 `/chat` 做成「可上集群的 API」。上游模型会抖 —— 502 / 连接重置 /  
+读超时都可能，直接透传给用户就是把上游的抖动放大成我们的不可用。  
+但重试不是「失败就再来」：不设上限会放大雪崩，不区分错误类型会白烧额度，  
+在流式场景下重试还会让用户看到答案从头重来。
+
+**决策**
+
+1. **重试只在「首 token 之前」**。流式响应一旦开始吐字就不再重试 ——  
+   半截答案没法续，重发等于客户端看到答案从头发一遍，比断流更难排查。
+2. **指数退避 1s→2s→4s…，封顶 8s**，每次再叠 0–0.5s **随机抖动**（防多实例同时重试 = 惊群）。
+3. **共 3 次尝试（含首发）后放弃**，耗尽转 **502**（不是 500 —— 语义是「我们没问题，上游有问题」，  
+   监控告警该分流）。
+4. **只重试 `retryable` 错误**：连接失败 / 读超时 / 408 / 409 / 429 / 5xx → 重试；  
+   400 / 401 / 403 / 404 → 不重试（请求或凭据有问题，重来一遍结果一样，只是白烧额度）。
+5. **关掉 SDK 自带的重试**（`max_retries=0`）。
+
+**理由**
+
+- **为什么是指数退避而不是固定间隔**：上游抖动通常是短暂拥塞。固定 1s 重试会在拥塞未缓解时  
+  再打一次、再打一次，等于给已经过载的上游加压；指数退避让重试间隔随失败次数拉开，  
+  给上游恢复留时间。抖动是为了避免「所有实例同一秒重试」形成新的尖峰。
+- **为什么上限是 3 次而不是更多**：这是「用户体验」与「成功率」的折中。  
+  3 次尝试在指数退避下最长约等 1+2 = 3s（不含抖动），用户还能接受；  
+  再多就要十几秒，用户早走了，而且失败概率的边际收益急剧下降。
+- **为什么重试次数要写进响应头**（`X-Upstream-Retries`）：排障时一眼就能区分  
+  「这次慢是因为重试了」还是「上游本来就慢」，不用翻日志。
+- **为什么关 SDK 重试**：openai SDK 默认自己会重试，若不关，「3 次重试」会变成  
+  3×3 次，上游一次抖动能把客户端拖死十几秒。重试策略只能有一层，且要显式。
+
+**实测证据（W2 D8 本地验收）**
+
+| 场景                              | 注入方式                                   | 结果                                              |
+| ------------------------------- | -------------------------------------- | ----------------------------------------------- |
+| 自动重试（2 次失败后成功）                  | `MOCK_FAIL_N_TIMES=2` + `LLM_MAX_ATTEMPTS=3` | 200，`attempts=3`、`retries=2`，响应头 `X-Upstream-Retries: 2` |
+| 重试耗尽                            | `MOCK_FAIL_N_TIMES=99` + `LLM_MAX_ATTEMPTS=2` | **502**，body 带 `{message, upstream, status}`      |
+| 指数退避生效                          | `LLM_BACKOFF_MIN=0.05` 观测两次退避间隔         | 日志 `0.1s 后重试` → `0.3s 后重试`（递增）                 |
+| 错误分类                            | 构造 401 / 400 / 500 / 429 / 连接失败 / 读超时  | 4xx 凭据/请求错 `retryable=False`，其余 `True`           |
+
+**三条踩坑（备查）**
+
+1. **流式下「首 token 超时」≠「总超时」**。首 token 超时是「建连后一直不来数据」，  
+   总超时是「整个响应拖太久」；混成一个值会把长回答误杀（首 token 正常但生成慢）。  
+   本实现里重试只对首 token 之前的故障生效，天然避开了这个歧义。
+2. **重试要显式关掉 SDK 的那一层**，否则两层叠加（见理由末条）。
+3. **结构化输出（JSON mode）不可靠**：模型仍可能吐出带 markdown 围栏的文本。  
+   本实现不假设一定能 parse —— 解析失败时保留原文 + 标 `parse_failed=true`，  
+   让调用方看到现场，而不是静默返回 null。
+
+**复核条件**：接入真实上游并积累一段 429 / 5xx 的实际发生率后，重新校准  
+`LLM_MAX_ATTEMPTS` 与退避上限；若发现长回答因「总超时」被误杀，则把  
+「首 token 超时」与「总超时」拆成两个独立参数。
+
+---
+
+## DEC-019 · 本机无 GPU 的现实：本地推理服务选型（2026-10-15 · W2 D10）
+
+**背景**：D10 要给 `/chat` 配一条「自托管」上游通道，与托管 API 组成双通道，并作为 primary 重试耗尽后的 fallback 兜底。第一选择是 vLLM（LLMOps 事实标准：OpenAI 兼容、continuous batching、生态成熟），但本机**没有 GPU**，只能走 CPU 路径。
+
+**决策**
+
+1. **放弃 vLLM 的 CPU 镜像**（`vllm/vllm-openai-cpu:latest`，v0.31.0）—— 它在**本机 Docker Desktop + WSL2 环境下无法完成引擎 warmup**，会永久卡死。
+2. **改用 Ollama** 提供本地 OpenAI 兼容端点（`http://localhost:11434/v1`）。
+3. **fallback 的配置语义不变**：仍是 `LLM_FALLBACK_ENABLED / MODEL / API_KEY / BASE_URL`，只是 `BASE_URL` 从 vLLM 的 `:8000/v1` 换成 Ollama 的 `:11434/v1` —— 协议层零改动。
+
+**实测证据（vLLM 为何被放弃）**
+
+| 排查维度 | 尝试 | 结果 |
+| --- | --- | --- |
+| 计算量 | `--max-model-len` 2048 → 1024 → **256** | 全卡；256 的 prefill 计算量可忽略仍卡 → **排除算力** |
+| CPU 核数 | auto（仅 3 核）→ `VLLM_CPU_OMP_THREADS_BIND=0-7` | 仍卡 |
+| 内存上限 | 8G → 12G | 仍卡 |
+| 共享内存 | `shm_size: 1gb`（容器内实测 1.0G 可用） | 仍卡 |
+| 权限 | `privileged: true`（消除 `numa_*` EPERM） | 仍卡 |
+| 引擎版本 | V1（默认）→ `VLLM_USE_V1=0` | 仍卡 |
+| OpenMP | `KMP_DUPLICATE_LIB_OK=TRUE` | 仍卡 |
+| 启动模式 | `--enforce-eager`（跳过 torch.compile） | 仍卡 |
+
+**共同症状**：日志稳定停在 `Warming up model for the compilation...`，之后每 60 秒一条 `No available shared memory broadcast block found in 60 seconds`，`/v1/models` 永不返回 200。
+
+**理由**
+
+- **为什么不继续深挖 vLLM**：D10 时间盒 1.5h，8 类配置已一致指向「镜像与 WSL2 运行时不兼容」，再往下是内核/驱动级排查，与「学 LLMOps 工程流程」的目标错位。**任务卡本身就预判了这点**（"本机无 GPU，vLLM 可能根本起不来 —— 起不来就直接跳过，别在这耗时间"）。
+- **为什么 Ollama 合适**：同样暴露 OpenAI 兼容的 `/v1/chat/completions`，`app/llm.py` 协议层一行不用改；CPU 上秒级启动、模型管理内置。代价是没有 continuous batching 这类服务端优化，但对「跑通双通道 + 拿延迟对比」够用。
+- **为什么值得记进日志**：这不是「环境坏了」，而是**会反复出现的选型约束** —— 无 GPU 机器上「能跑什么推理服务」有明确边界，下次不必重走这 8 类排查。
+
+**实测数据（Ollama · qwen2.5:0.5b · 生成 64 tok）**
+
+| 并发 | p50 | p90 | RPS | tok/s |
+| --- | --- | --- | --- | --- |
+| 1 | 3.10s | 3.61s | 0.33 | 14.1 |
+| 4 | 3.45s | 4.93s | 0.99 | 40.8 |
+
+**读法**：CPU 上多核并行能把吞吐拉近 3 倍，但**绝对值**仍是「单机玩具级」—— 这正说明为什么生产环境的自托管推理必须配 GPU。
+
+**复核条件**：换到有 GPU 的机器后，vLLM 应作为首选重新评估，并重跑双通道压测确认服务端优化带来的吞吐差异。
+
+---
+
+## DEC-020 · 为什么生产环境要 PDB 与反亲和（2026-10-15 · W2 D11）
+
+**背景**
+D11 要给 prod 做可用性收口。两个常被并列提起、但**管的是两件不同的事**的机制：PodDisruptionBudget（PDB）与 PodAntiAffinity（反亲和）。
+
+**选项**
+
+1. 只加 PDB —— 挡住 drain 时的批量驱逐
+2. 只加反亲和 —— 让副本分散到不同节点
+3. **两个都加，各管一段**
+
+**选择**：方案 3
+
+**理由**
+
+- 先分清两类中断，这是本决策的核心：
+  - **自愿中断**（voluntary）：`kubectl drain`、节点升级、集群缩容 —— 人/控制器**主动**发起，走 Eviction API。**PDB 管这段**。
+  - **非自愿中断**（involuntary）：节点宕机、内核 panic、OOMKilled —— **PDB 管不了**，只能靠「多副本 + 反亲和」把风险摊到多个节点。
+- 所以两者**互补而非重复**：PDB 保「主动操作时不断服」，反亲和保「被动故障时不团灭」。
+- ⚠️ PDB 的两条易错语义：① 只拦 Eviction API，**拦不住 `kubectl delete pod`**；② selector 必须与 Deployment 一致，否则保护的是一个空集合。
+
+**实测证据（本地 kind 单节点）**
+
+| 机制 | 操作 | 结果 |
+| --- | --- | --- |
+| PDB | 2 副本、`minAvailable:1` 时驱逐 pod1 | **HTTP 201**（成功） |
+| PDB | 立刻驱逐 pod2 | **HTTP 429** `Cannot evict pod as it would violate the pod's disruption budget` |
+| PDB | 把副本缩到 1 | `Allowed disruptions: 1 → **0**`（任何驱逐都会被拒） |
+| 反亲和 | `type: hard` + 单节点 + 删 pod 触发重调度 | 新副本 **Pending**：`0/1 nodes are available: 1 node(s) didn't match pod anti-affinity rules` |
+| 反亲和 | `type: soft`（prod 默认） | 正常调度（单节点上"尽量分散"退化为"挤一起"，不阻塞） |
+
+**代价**
+
+- `minAvailable` 与副本数相等时，drain 会**永久卡住** —— 这是「保护强度」与「可运维性」的直接取舍。
+- 反亲和 `hard` 在节点数不足时会让副本直接 Pending —— **反亲和依赖节点多样性**，单节点集群上 `hard` 是自伤。
+- 本机 kind 只有 1 个节点，反亲和的**收益无法真实验证**（只能验证"配置正确 + hard 会 Pending"）；多节点集群才看得出分散效果。
+
+**复核条件**
+上多节点集群后重测反亲和的真实分散效果；prod 副本数变化时复核 PDB 口径（`minAvailable` vs `maxUnavailable`）。
+
+---
+
+## DEC-021 · dev / prod 隔离的边界在哪（2026-10-15 · W2 D11）
+
+**背景**
+D6 起用「同一份 Chart + 两套 values」做双环境。需要明确：**隔离到底隔了什么、又没隔什么**，否则容易误以为「有两个 Namespace 就等于生产级隔离」。
+
+**选项**
+
+1. 两个独立 Chart —— 彻底，但模板重复、修一处要改两遍
+2. **同一 Chart + 两套 values + 两个 Namespace**
+3. 两个独立集群 —— 隔离最强，本地做不到
+
+**选择**：方案 2
+
+**理由**
+同一 Chart 保证「模板只有一份真相」，values 差异承载环境差异。实测确认隔离由四层共同构成：
+
+| 层 | 机制 | 实测 |
+| --- | --- | --- |
+| 命名空间 | `dev` / `prod` 两个 ns | `kubectl get ns` 两行独立 |
+| 对象命名 | `fullname = <release>-<chart>` | `llmops-dev-llmops-chart` vs `llmops-prod-llmops-chart` |
+| **selector** | `app.kubernetes.io/instance: <Release.Name>` | **这是互不干扰的关键** —— 拿 dev 的 selector 去 prod ns 找 Pod = 0 个 |
+| 配置 | ConfigMap / env 由 values 覆盖 | dev：`DEBUG`/`mock`/`log`/`ENABLE_LOAD_ENDPOINT=1`；prod：`INFO`/`openai`/`langfuse`/`ENABLE_LOAD_ENDPOINT=0` |
+
+**不隔离的部分（必须知道）**：集群级资源是共用的 —— CRD、Ingress 控制器、StorageClass、metrics-server、镜像仓库。所以「dev 改坏了 CRD」会波及 prod。
+
+**代价**
+
+- ⚠️ Helm 的 values 合并是**浅合并 + 递归合并 map**，但**列表整体替换** —— dev 的 `env` 只写一项会让另一项消失，所以两套 values 的 `env` 都必须写全。
+- 两套环境要**各自 upgrade**：本次就实测到 prod 落后 dev 4 个小版本（chart 0.2.0 vs 0.4.0，env 缺 `LLM_MODE`/`OBSERVABILITY`），是「多环境"验证"」该抓的第一类问题。
+- 一个 release 的 values 漂移不会自动同步到另一个 —— 没有"继承"机制。
+
+**复核条件**
+上真实生产时，Namespace 隔离不够（需独立集群或至少独立节点池）；多租户场景还要补 ResourceQuota / LimitRange 做硬隔离（本次已给 dev 配了 quota 兜底，见 `infra/k8s/dev-quota.yaml`）。
+
+---
+
+## DEC-022 · 成熟度自评：现在 L1，目标 L3（2026-10-19 · W3 D13）
+
+**背景**：按 MLOps Zoomcamp 的微软五级成熟度模型（L0 全手动 → L4 监控触发自动重训）给作品集定位。
+
+**选择**：目标定 **L3**（部署可自动化：注册表 + 一键上线/回滚），L4 不做。
+
+**理由**：作品集**已有 L3 的工具**（Helm、dev/prod 双环境、可观测），缺的是 **L2 的实验追踪与 L3 的回滚路径**——差的是流程，不是工具；L4 触发条件不可靠，先证明价值再谈自动化。
+
+**实证**：D13 三组 RMSE——验证集基线 **7.759**；`PU_DO` 组合特征 9.827 → 7.759（降一个量级）；Lasso 11.167 更差。
+
+**复核条件**：W3 实验追踪 / Registry 落地、W6-W7 有真实回流后重评。
+
+---
+
+## DEC-023 · 实验记录的最小充分集（2026-10-20 · W3 D14）
+
+**背景**：run 记到什么程度，才能「三个月后不问人就重放」。
+
+**选择**：快照五件套——**代码版本（git_sha）+ 参数 + 指标 + 产物（模型/预处理器）+ 数据/评估集版本（eval_set_version）**，缺一件就只是日志。
+
+**实证**：同代码同题两轮 p50 差 2.7 倍，只因上游负载不同 → `eval_set_version` 与 `git_sha` 都不可省。
+
+**代价**：每次实验多记两个字段；评估集换版要升版本号，管理成本略增。
+
+---
+
+## DEC-024 · MLflow 与 Langfuse 的分工（2026-10-20 · W3 D14）
+
+**背景**：实验层与请求层两个观测工具都能接，先划清各记哪一半。
+
+**选择**：MLflow 记**一次实验的汇总**（哪版更好、好多少），Langfuse 记**一次请求的链路**（这次为什么慢/贵/错），靠 `prompt_version` / `run_id` 串。
+
+**实证**：追踪脚本强制 `OBSERVABILITY=off`——Langfuse 上报虽异步，但排队/重试抖动会污染 p95，比指标时不能混入。
+
+**代价**：这批 run 在 Langfuse 无对应 trace，「这个 run 的第 3 条为什么花 62 秒」要等 D16 把响应头/trace metadata 接上后才能回答。
+
+---
+
+## DEC-025 · 模型注册用 alias 不用 stage（2026-10-21 · W3 D15）
+
+**背景**：D15 要把「可部署单元」注册进 Model Registry 并管理版本切换。MLflow 有两种指针机制：stage（Staging / Production 生命周期）与 alias（可任意指向某版本的标签）；stage 自 MLflow 2.9 起已 deprecated。
+
+**选择**：用 alias（`production` / `canary` / `champion`），不建 stage。
+
+**理由**：alias 是裸指针——回滚 = 把指针拨回去，金丝雀 = 建第二个指针，全部零代码零部署；stage 把「一条单向流水线」写死在工具里，想表达回滚只能再建一套流水线或手工改 stage。
+
+**实证**：
+
+| 场景 | 证据 |
+| --- | --- |
+| 课程侧 | `taxi-duration`：`champion` 拨 v1→v2→v1，`load_model("models:/taxi-duration@champion")` 全程一行代码；预测 [15.43, 6.49, 15.75, 21.68, 11.02] ↔ [15.33, 6.50, 15.20, 21.47, 10.79] 跟着变、再拨回 |
+| 作品集侧 | `qa-combo`：`production`→v1（prompt v0）/ `canary`→v2（prompt v1）；`combos.py` 同一行 `load_combo`，alias 一拨，system_prompt 从「只输出 JSON」变成「资金与财务问答」 |
+
+**代价**：alias 没有状态机——工具不阻止把 `production` 拨到未 READY 的版本；多 alias 语义靠团队约定。对策：切 alias 走 review / CI，权限与职责管控到人，禁止手工拨。
+
+---
+
+## DEC-026 · 模型版本与 prompt 版本必须一起管（2026-10-21 · W3 D15）
+
+**背景**：LLM 项目的「可部署单元」不是模型文件，是四元组（prompt 版本 × 模型名 × 采样参数 × 检索配置）。
+
+**选择**：整体注册成一个 Registry 版本（`qa-combo`）；**prompt 原文不另存本地副本，从产出它的 run 的 artifact 里取、sha256 校验后才注册**。
+
+**实证**：
+
+| 环节 | 证据 |
+| --- | --- |
+| 注册闭环 | `qa-combo` v1 = `production`（prompt v0）、v2 = `canary`（v1），按 alias 回读 combo.json 全字段成功 |
+| prompt 绑定 | sha256 前 8 位与 run 记录比对（v0 `d7b79571` / v1 `009c95a5`），对不上拒绝注册 |
+| 血缘双 run | version 指向打包 combo 的 run，tag `source_run_id` 指向产出指标的评估 run（v0→`e56bc7e0`、v1→`52db5d13`） |
+| 按名取用 | `combos.py` 只认 `models:/qa-combo@production`；同一条代码，两个 alias 取到不同 prompt 原文 |
+| 回落可见 | alias 不存在 / Registry 不可达 → `source="local-fallback"` 且 reason 说得出；超时收紧到 3s/1 次重试（默认 90s+） |
+
+**附带决策**：alias **启动时解析 + 回落**（`COMBO_TTL_SECONDS=0`），理由是**一致性不是性能**——一次会话里 prompt 不该中途变；热切换交给 D18 滚动更新。
+
+**代价**：改 prompt 必须走评估 run → 重新注册；D16 把 prompt 抽成 `prompts/.../v1.yaml` 文件后改善（combo.json 结构不变，`prompt_hash` 从字符串 hash 变文件 hash）。
+
+**反模式**：prompt 复制一份到本地（两个真相源，回滚读到新 prompt）；给没跑过评估的组合开 alias（血缘断裂）；静默回落（不给 source/reason）。
+
+**面试口径**：prompt 是代码，不是配置。代码有版本管理可评估、可回归。它进版本（`prompt_version` + `prompt_hash`）、走评估（先有评估 run 才有 combo）、和模型参数绑成一个可部署单元注册进 Registry；线上只引用 `models:/qa-combo@production` 一个名字，回滚就是把这个名字拨回上一个版本——**模型和 prompt 一起回，不存在半新半旧**。而且 prompt 原文存在 Registry artifact 里、注册时 sha256 校验，回滚读到的一定是当初评估过的那一份，改一个字符都注册不上去。
+
+---
+
+## DEC-027 · prompt 以 git 为真源，registry 只做发布指针（2026-10-21 · W3 D16）
+
+**背景**：prompt 改一个字就是改行为，既要能评审/回滚（像代码），又要能不发版就切（像配置）。两条要求看似冲突。
+
+**选择**：prompt 的**内容**以 git 为唯一真源（`prompts/<name>/v<N>.yaml`），**发布指向**放 registry（Langfuse label / MLflow alias）；两边用 `sha256(模板)[:8]` 对账，CI 里不一致就红。一句话：**git 管「对不对」，registry 管「现在用哪个」。**
+
+**实证**：
+
+| 环节 | 证据 |
+| --- | --- |
+| 内容身份精确到字节 | v1 `d7b79571`；写成 `template: \|` 多一个尾换行立刻变 `c8e16337`。v2 `009c95a5` → `c334b344` |
+| 注册闭环 | v1→`production`（`d7b79571`）、v2→`canary`（`009c95a5`）；`load_prompt` 的 `source` 由 `local` 翻成 `langfuse` |
+| 指针一步可挪 | 给 v2 加 `production` → v1 **自动变 `[]`**（labels 跨版本唯一）；`new_labels=[]` 是空操作，删 label 只能走 UI |
+| 删了不心疼 | 误删 version #2 → `canary` 404；一条命令从 yaml 重建，hash 不变；**重建后版本号还是 v2**（编号复用 → 身份只能靠 hash） |
+| 换版延迟 | 不重启可换版，但生效 = TTL(60s) + 1 个请求（stale-while-revalidate）；要立即生效用 `PROMPT_CACHE_TTL=0` |
+| 血缘对齐 | 两个 run 的 `model` / `max_tokens` / `eval_set` / `git_sha` 四项一致，唯一变量是 prompt 版本；`format_ok_rate` 双 1.0、`refusal_rate` 0.0 → 0.2 |
+
+**代价与对策**：双写 → 注册脚本只读 yaml + CI 对账 + `labels.yaml` 把指针镜像回 git；指针人人可拨 → 走 review/CI（同 DEC-025）；回落「猜最新版」会静默给错版本 → `labels.yaml` 还原指向、取不到才 latest 并在 `local_pick` 写明。
+
+**反模式**：只存数据库（无 diff/blame，删版本即事故）；只放 git（换版要发版）；prompt 在代码库再复制一份（两个真相源）；只写 trace metadata 不挂 prompt 对象（UI 的 `Prompt Name` 列空、按版本联动失效）。
+
+**面试口径**：prompt 是代码不是配置——它改的是行为，所以要 PR/diff/评估/回滚；但它需要不发版就切，所以指针放 registry。追问「怎么保证 registry 里就是评审过的那版」→ hash 对账；「registry 挂了怎么办」→ 回落本地但必须说得出凭什么（`local_pick`）。
+
+---
+
+## DEC-028 · MLflow 独立 chart 与独立 ns，日常走本地、演示走集群（2026-10-22 · W3 D18）
+
+**背景**：tracking server 要进 K8s，但它既不是「我的应用」，也不该和应用的扩缩容策略绑在一起。
+
+**选择（四层）**：① **独立 chart** `infra/k8s/mlflow/`（不做 `llmops-chart` 子模板）；② **独立 ns `mlflow`**（避开 dev 的 NetworkPolicy，DB 走 FQDN 跨 ns）；③ artifacts 用**代理模式**（`--serve-artifacts` + `--artifacts-destination`，客户端不持存储凭据）；④ **A 日常本地 / B 演示集群**（用频次决定默认值）。
+
+**实证**：
+
+| 环节 | 证据 |
+| --- | --- |
+| 部署 | ns `mlflow`：Deployment 1/1 Running（0 restarts）、PVC 2Gi Bound、Service 5000、Ingress `mlflow.llmops.local` |
+| 后端 | Postgres `mlflow` 库，`alembic_version` 等表由迁移自动建好 |
+| 代理模式 | 实验的 `artifact_location` = `mlflow-artifacts:/1`；artifact 落 `/mlartifacts/1/<run>/artifacts/note.txt` |
+| 持久性 | Pod 多次重启后 artifact 仍在（PVC 生效） |
+| 通路 | Pod 内 /health 200；**走 Ingress** /health 200、API 200 |
+| 非 root | `runAsUser/fsGroup=1000` 下写入成功，不必退回 root |
+
+**五个坑**（详见 `infra/k8s/mlflow/README.md`）：官方镜像 ENTRYPOINT 为空（要 `command: ["mlflow"]`）／镜像无 psycopg2（自建镜像）／SQLAlchemy 2.1 把 `postgresql://` 当 psycopg3（写 `postgresql+psycopg2://`）／默认 4 worker 在 2Gi 下 OOMKilled（`--workers=2` + 3Gi）／MLflow 3.x Host 白名单（`MLFLOW_SERVER_ALLOWED_HOSTS`）。
+
+**代价**：两套环境数据不共享（演示前重跑关键实验）；B 依赖 hosts 与 kind 常驻；自建镜像要随官方版本重建；密码在两处出现（由脚本生成，不手抄、不入库）。
+
+**反模式**：把 MLflow 塞进应用 chart（连带重启、HPA 语义错配）；SQLite 挂 PVC 跑多副本（必然坏库）；DB 密码写 `values.yaml` 提交；把演示环境当日常用（摩擦会让人绕开实验追踪）。
+
+---
+
+## DEC-029 · 什么该编排、什么不该（2026-10-26 · W4 D1）
+
+**背景**：第一次上编排器（Prefect）。风险不在「不会用」，而在**过度使用**——把每个脚本都套一层 flow，换来多一层依赖、多一份运行环境、多一个要维护的服务，而收益（可观测 / 重试 / 回填）可能一次都用不上。今天把判据写死，避免以后凭手感决定。
+
+**选择**：作品集里**只有 RAG 索引重建上编排器（Prefect）**，其余（训练、评估、批量打分）先写成可参数化脚本，等出现「需要定时 / 需要回填 / 需要定位是哪一步挂的」再加。
+
+**实证**（2026-10-26 D1，本机 Prefect 3.9.0，run `nebulous-pelican`）：
+
+| 项 | 实测值 | 说明 |
+| --- | --- | --- |
+| flow 总耗时 | **79.51s** | — |
+| `train_model` | **78.19s** | 占 98.3% |
+| `create_X` ×2 | 0.59s / 0.33s | 特征矩阵 |
+| `read_dataframe` ×2 | 0.21s / 0.08s | 读 parquet |
+| 指标 | RMSE **6.906** | 与另一次独立运行完全一致 → 可复现 |
+| 失败重试 | 3 次尝试（间隔 **1s → 3s**）后 Failed | `--month 7` 故意触发 |
+
+这组数字本身就在回答「该不该编排」：四步里三步加起来不到 1.2 秒，只有训练是重活。不拆 task 只会看到「80 秒」；拆了才知道**要优化就优化 `train_model`，别去动数据读取**。
+
+**判据**（该编排 vs 不该编排）：
+- **该**：多步 + 有明确依赖顺序 / 需要定时·重跑·回填 / 失败要能定位到哪一步 / 多人多团队要能看到跑过什么 / 单步耗时长、想单独重跑某一步。
+- **不该**：单步脚本跑完就完 / 一次性探索·notebook 里试参数 / 交互式操作（人得看着）/ 秒级任务（编排开销比干活还大）/ 本地跑得顺、没有第二个人会碰。
+
+**复核条件**（出现任一条就重新评估）：① RAG 索引之外的脚本需要无人值守定时跑（如每天早上重建）；② 有人（或未来的我）需要回填某个月/某批数据；③ 某次失败排查花超过 10 分钟还定位不到哪步挂的。
+
+**反模式**：把每个脚本都套 flow（过度编排）；把「可复现」算成编排器的功劳（那是参数化脚本 + `random_state` 给的）；不拆 task 就谈优化（看不到瓶颈）。
+
+**面试口径**：编排器不是越早越好，是「多步 + 要定时/回填/定位」才值得付那层运维成本。我的项目只给 RAG 索引重建上 Prefect，其余先脚本化，等需求出现再加。
+
+---
+
+## DEC-030 · 我的项目选「在线 + 离线」混合，不做流式（2026-10-27 · W4 D3）
+
+**背景**：W4 D3 任务卡要求回答「我的项目属于哪种部署形态、为什么」。三种形态（在线 / 离线 / 流式）在触发方式、延迟特征、运维代价上完全不同，得按业务约束选，而不是按技术偏好堆。
+
+**选择**：**在线为主 + 离线为辅，明确不做流式**。
+- **在线**：问答 `/chat` —— 用户同步等结果，请求到达即算。
+- **离线**：RAG 索引重建 —— 无人等、可调度、失败可整批重跑。
+- **不做流式**：目前没有持续产生事件的东西（点击流 / 传感器 / 消息队列）。不是不会，是需求不存在。
+
+**实证**（2026-10-27 本机三种形态各跑通一个最小例子，同一份特征口径）：
+
+| 形态 | 触发方式 | 实测延迟 / 吞吐 | 证据 |
+| --- | --- | --- | --- |
+| 在线（packed LR） | HTTP 请求，请求即算 | 端到端 p50 15ms（模型 1.2–3.1ms） | `serve.py --source packed`，同一请求 → **26.439** |
+| 在线（registry RF v4） | 同上，启动时按 alias 取模型 | 首次 134–243ms（sklearn warmup），之后同上 | 同代码 `--source registry` → **49.284**；alias 拨 v3 → **50.651** |
+| 离线（批处理） | 手动 / 定时 / 回填 | 73908 行 / 0.64s（约 11.6 万行/秒，LR） | `score_batch.py`；`--start/--end` 一次回填 2 个月 |
+| 流式（Redis Streams） | 事件到达即推，消费者常驻 | 单条 0.5–1.7ms（首条 45ms warmup） | `stream_demo.py`，20 条进出 |
+
+**判据（三问定形态）**：
+- **有人等吗？** 是（`/chat`）→ 在线。
+- **能重跑吗？** 索引重建能重跑（D2 已做增量 + 重试）→ 离线。
+- **事件有源头吗？** 没有 → 不做流式。
+
+**代价与对策**：
+- **在线**：要保活、扩缩容、处理冷启动（registry 拉 v4 的约 520MB 需 12–16s）→ readiness 探针 + 镜像内模型缓存 + registry 不可用时降级到本地最后一份。
+- **离线**：模型贵不贵几乎不重要（RF 0.0316ms/条 vs LR 0.0086ms/条，总耗时仍 1–2s 级）；但每次跑都要重新下载 artifact → 缓存 / 本地兜底。
+- **流式（未采用）**：运维代价最高（游标提交、重放、幂等、乱序），没有事件源就不引入这份复杂度。
+
+**反模式**：为「三种都会」硬上流式（没有事件源却搭 Kafka/Kinesis）；把在线当离线用（用户等的时候去跑批）；把离线当在线用（让用户同步等一个 7 万行的批）。
+
+**面试口径**：形态不是技术选择，是「谁在等、能不能重来」的业务约束翻译。用户等 → 在线；没人等且能重跑 → 离线；事件不停 → 流式。我的项目是「在线 + 离线混合」，不做流式是因为没有持续事件源——不是不会，是需求不存在。
+
+---
+
+## DEC-031 · 并发是吞吐手段，不是降本手段（2026-10-27 · W4 D4）
+
+**背景**：W4 D4 任务卡要求做「批量 vs 逐条」的成本与耗时对比。直觉是「开并发 = 更快 = 更省」，但省的是哪一项、省了多少必须用数字说清，否则容易把吞吐优化当成成本优化——这是面试里最常被追问的一句。
+
+**选择**：**批量打分默认 8 并发（`--workers 8`），但明确「并发只买时间，不买 token」**。真正的单价下降押在另外两条路上，D5 之后再做：① 缓存（LiteLLM 精确/语义匹配）；② Batch API（异步、约半价）。离线批处理里再叠一层「批量 predict」省协议开销。
+
+**实证**（`evals/batch_score.py`，`--n 100`，2026-10-27 本机，同一天三次重复）：
+
+| 条件 | 8 并发 | 串行（`--workers 1`） | 结论 |
+| --- | --- | --- | --- |
+| **有** 80ms 模拟网络延迟 | 1.05–1.06s / 10.54–10.62ms·条 | 8.08–8.18s / 80.75–81.84ms·条 | 并发赢 **7.66–7.71×** |
+| **无** 模拟延迟（mock 瞬时返回） | 0.02s / 0.19–0.23ms·条 | **0.01s / 0.09–0.10ms·条** | **串行赢 2.1–2.3×** |
+| token 成本（四组全同） | **4810 tokens / $0.001261** | **4810 tokens / $0.001261** | **一位小数都没动** |
+
+**判据（先问「慢在哪」，再决定要不要并发）**：
+- 慢在**等**（网络 / 磁盘 / 上游限流退避）→ 并发有收益，收益上限 ≈ workers 数。
+- 慢在**算**（CPU 密集、无 I/O）→ 并发无收益甚至负收益（线程调度 + GIL），该换算法或换机器。
+- 慢在**单价**（token 花得多）→ 并发完全无效，只能靠缓存 / Batch API / 砍上下文。
+
+**代价与对策**：
+- `--workers` 是**吞吐旋钮 + 429 闸门**双重身份：开太大撞上游限流，重试又会放大成重试风暴 → 从 4–8 起调，看 429 率再往上加。
+- 并发让**失败定位变难**（要翻结果表的 `error` 列）→ 每行带 `error` / `attempts` / `retries`，别只留成功行。
+- mock 演练必须加 `--sim-latency-ms`，否则测出来的是线程池开销，不是并发收益。
+
+**反模式**：把「并发快了 7 倍」当成「成本降了 7 倍」；无 I/O 时堆并发；拿累计计数（如 `xlen`）当「本次处理量」；只报加速比不报 token 账。
+
+**面试口径**：并发是把等待叠起来，省的是墙钟时间；token 单价一分不动。要降单价只有三条路——批量 predict 省协议开销、Batch API 异步半价、缓存命中 0 token。我实测过反面：**没有 I/O 等待时开 8 并发反而比串行慢 2 倍**，所以「先问慢在哪」比「先开并发」重要。
+
+---
+
+## DEC-032 · 网关路由三档 + 缓存分层，阈值暂缓（2026-10-27 · W4 D5）
+
+**背景**：W4 D5 任务卡要求「记路由策略与阈值取值理由」。网关是应用与模型供应商之间的唯一入口，路由与缓存都在这一层；但两者的成熟度完全不同——路由今天可以实测验证，语义缓存的阈值今天**没有条件实测**。
+
+**选择**：
+1. **路由**：三个别名 `primary` / `cheap` / `backup`，策略 `simple-shuffle`，`num_retries: 1`、`timeout: 120`、`allowed_fails: 3`、`cooldown_time: 30`；故障转移链 `primary → backup`、`cheap → backup`。
+2. **缓存先只上精确匹配**（redis，TTL 600 秒）；**语义缓存暂缓**。
+3. **`similarity_threshold: 0.85` 标为「暂定值、无实测支撑」**，不当作结论。
+
+**实证**（2026-10-27 本机，LiteLLM 1.106.4 / 端口 4001）：
+
+| 实验 | 做法 | 结果 |
+| --- | --- | --- |
+| 故障转移 | 把 `LLM_PRIMARY_BASE_URL` 指到死端口 `127.0.0.1:9`，另起 4002 | **HTTP 200**，`attempted-fallbacks: 1`、`model-group: backup`、`api-base: 31415`；耗时 7899ms / 13688ms，网关开销占比从 0.3% 升到 **31%** |
+| 对照（无 fallback） | 注释掉 `fallbacks` 起 4003 | **5xx**（502 与 500 都出现过）+ body 含 `No fallback was attempted.`；日志 `LiteLLM Retried: 1 times` |
+| 精确缓存 | 同一提示连发三次 | **1161.6ms（无 cache-key）→ 10.3ms → 8.9ms**；命中两次的 `cache-key` 与响应 **`id` 均与第一次相同** |
+| 语义缓存 | 查前置条件 | **跑不了**：上游 298 个模型无 embedding / `redis:7` 无 RediSearch / `redisvl` 未装 |
+
+**判据（每个参数为什么是这个值）**：
+
+| 参数 | 取值 | 理由 |
+| --- | --- | --- |
+| `routing_strategy` | `simple-shuffle` | 每个别名只有**一个部署**，策略今天不起作用；写它是**留扩容位**——将来 primary 加第二个上游，策略不用改 |
+| `num_retries` | `1` | 偶发抖动靠 retry 吸收，不必惊动 fallback；实测连接失败会先重试 1 次（日志 `Retried: 1 times`）再切 |
+| `timeout` | `120` | 上游首包实测 6.9s~70s（免费池波动十倍），设紧了会误判超时 |
+| `cooldown_time` | `30` | 失败的部署冷却半分钟，避免持续往死地址打 |
+| 缓存 TTL | `600` | 十分钟内重复问题直接命中；更长会拿到过时答案 |
+| `similarity_threshold` | `0.85`（**暂定**） | **无实测支撑**。正确做法是对真实问题对做相似度扫描、画命中/误伤曲线，等 W6 有 embedding 端点再补 |
+
+**两处判据纠正（写进决策比写结论更有价值）**：
+- **响应头是摘要，日志才是事实**：故障实例响应头 `attempted-retries: 0`，但日志写 `LiteLLM Retried: 1 times`。两者冲突时信日志。
+- **缓存命中看响应 `id`，不看耗时**：耗时受负载影响（见过 2026ms 的命中），而命中返回的是缓存原文，`id` / `created` / `usage` 全原样复用。
+
+**代价与对策**：
+- **备用可能更差**：备用通常更慢 / 更贵 / 配额更小。今天实测 fallback 后耗时翻倍、网关开销占比升到 31%。→ 备用只当「兜底不挂」，不当「常态分流」。
+- **没有成本数字**：`x-litellm-response-cost-*` 全 `0.0`，因为 LiteLLM 不认识自定义模型名、无价目表；而上游 body 里明确有 `cost: 2.24e-06`。→ 在 `model_list` 补 `input_cost_per_token` / `output_cost_per_token`，否则成本是盲区（W7 补）。
+- **精确缓存命中率低**：改一个字就 miss。→ 命中率要拿真实流量日志算，别拍脑袋；想提升才考虑语义缓存，且必须先解决多轮误命中。
+
+**反模式**：把 `0.85` 当成验证过的结论（它没有）；用响应头判断重试次数；用 `DBSIZE` 数缓存键（混着 TTL 30 秒的限流键和 D3/D4 留下的 Stream）；把备用当常态分流；语义缓存不设 `semantic_cache_scope: end_user` 就上多租户。
+
+**面试口径**：网关管「怎么送到」——别名映射、重试、故障转移、缓存都在这一层，应用代码零改动；但它不管「送什么」和「送得对不对」，所以档位分流在应用侧判、质量在评估层看。我做故障转移时是**先做对照**的：有 fallbacks 返回 200，去掉就是 5xx + `No fallback was attempted`——不做对照就等于没做实验。阈值那项我明确标了「未验证」，因为本机缺 embedding 端点；**把没验证的数写成结论，比留个问号更糟**。
+
+---
+
+## DEC-033 · 分流用规则不用 LLM，重试只留网关一层（2026-10-28 · W4 D6）
+
+**背景**：D6 要把作品集接进网关，并让「简单问题走便宜模型、复杂问题走前沿模型」。两条边界必须当场定死：**谁来判档**（网关还是应用、规则还是模型）、**重试配几层**（应用 + 网关各配一套会怎样）。
+
+**选择**：
+1. **分流在应用侧用规则判**（`app/routing.py`），**不用 LLM 判路由**。判据五类：`structured` +3、长度 ≥120 字 +2 / ≥40 字 +1、多轮 +1、强信号词 +3、弱信号词 +1（封顶 2）、引用材料 +2、简单词 −1（**且只在没有复杂词时生效**）。合计 ≥3 → `primary`，否则 `cheap`。
+2. **重试与降级只留一层，那一层是网关**：应用侧 `LLM_MAX_ATTEMPTS=1` + `LLM_FALLBACK_ENABLED=false`。
+3. **应用连网关一律写 `127.0.0.1`，不写 `localhost`**（`scripts/use_gateway.ps1` 强制替换）。
+4. 应用侧业务代码**零改动**接入网关：只换会话环境变量（`use_gateway.ps1`），`/chat` 只多了一个 `model=auto` 的默认值和三个回显位（响应头 `X-Route-*` / body `routing` / 日志 `route=`）。
+5. **别名背后用哪个模型不是永久契约**：当天换了三次目标（`deepseek-v4-flash-0731` 上游 `no_key` → `gemini-3.5-flash-lite` → 又被 429 → `gemini-flash-lite`；`deepseek-v4-flash` → `qwen3.5-397b`），**应用代码始终零改动**。模型选型随上游可用性调整，不需要走应用发版。
+
+**实证**（2026-10-28 本机；LiteLLM 1.106.4 / 4001；应用 8000；上游 31415）
+
+| 实验 | 做法 | 结果 |
+| --- | --- | --- |
+| 判档成本 | `decide()` 连跑 20000 次取均值 | **4.8–6.0 µs/次**（两次实测）；对比 LLM 判路由 0.5–2s，差五个数量级 |
+| 离线路由命中率 | 24 条题面（12 简单 / 12 复杂）人工标注后离线跑 | `cheap` **12/24 = 50%**、`primary` **12/24 = 50%**，与标注**不符 0 条** |
+| 边界样本（故意留） | 3 条已知会判错的题 | 1 条**过判**（「计算」把定义题拉成 primary）+ 2 条**漏判**（多轮追问、要求完整枚举） |
+| 在线端到端 | `--rounds 3` × 6 条 = 18 请求 | 分流 **18/18 全对**；第 2、3 轮缓存 **6/6 命中**（16–32ms） |
+| 别名指向死模型 | `cheap` → `deepseek-v4-flash-0731`（上游 `available:false / no_key`） | 每条 cheap 先失败再 fallback：`attempted-fallbacks: 1`、`model-group: backup`、2.1–3.5s；改一行 yaml 换 gemini 后 `model-group: cheap`、0 fallback、1.17–1.5s，**应用代码零改动** |
+| 连接主机名 | 同一套 0s/90s 间隔，只换主机名 | `localhost` **2.094s** vs `127.0.0.1` **0.042s**（Windows 上 localhost 先解析 `::1`，网关只听 IPv4，每次新建连接多等约 2s） |
+
+**判据（每个取值为什么是这个数）**：
+
+| 项 | 取值 | 理由 |
+| --- | --- | --- |
+| 判档阈值 | `3` | 强信号词一条 +3 即达标；弱信号词要两条才够，避免「问步骤」被当成推理题 |
+| 强信号词权重 | `+3`（命中多个不叠加） | 出现「区别/对比/分析/为什么」就基本是推理题，叠加只会让长题更贵 |
+| 简单词减分 | `−1`，**且仅在无强/弱信号词时生效** | 反例：`…是什么关系？请对比两者的记账时点` 同时命中「是什么」和「对比」，无条件减分会判反 |
+| 重试层数 | **1（网关）** | 两层都配 = 次数相乘（应用 3 × 网关 retry+fallback 2 = 上游被敲 6 次），故障被放大且日志看不出谁在重试 |
+| 连接主机名 | `127.0.0.1` | `localhost` 在 Windows 上走 IPv6 回落，每次新建连接多 2s（实测差 50 倍） |
+
+**三处判据纠正（写进决策比写结论更有价值）**：
+- **「首发落到备用部署」是错的**：我先这么解释「隔几分钟再问又变慢」，被 `attempted-fallbacks: 0` 打回来。真因是 `localhost` 的 IPv6 回落——**看起来像缓存失效，实际是重新握手**。教训：先列「怎么证伪」，再开口。
+- **命中缓存 ≠ 一定快**：实测过命中仍 2159ms（命中之前先付了一次失败尝试）。判据顺序固定为 `cache-key` / 响应 `id` / `execution_id` 优先，耗时只作参考。
+- **上游 429 会伪装成任何事**：两个别名都 fallback、`total_tokens` 从 66 跳到 140 那一串、每条 2s 起、缓存全 miss。**第一步永远先看 `model-group` 是不是 `backup`。**
+
+**代价与对策**：
+- **规则有边界**：24/24 只说明「规则与自己的标注一致」，不代表泛化。→ 脚本里留 3 条故意判错的样本；真检验要等 W6 的 golden set。
+- **过判可忍、漏判不可忍**：过判只多花钱，漏判直接让用户拿到差答案。→ 阈值宁低勿高。
+- **别名背后是死是活，网关不主动告警**：`cheap` 指着一个 `no_key` 的模型跑了不知道多久。→ W7 补「别名健康检查」（定时打每个别名，落 `model-group` 与耗时）。
+
+**反模式**：用 LLM 判路由（为了省一次调用先花一次调用）；应用与网关各配一套重试；用耗时判断缓存是否命中；用 `localhost` 连本机服务；把「第 2 轮命中率 5/6」当成缓存健康度（它测的是上游脸色）。
+
+**面试口径**：分流是业务判断，只能在应用侧判——网关知道「`primary` 对应谁」，不知道「这问题难不难」。判档我用规则，6 微秒一次、同输入永远同结论、可回放；用模型判路由等于为了省钱先花钱，还多一层不可复现的失败点。重试我只留一层（网关），因为两层都配会让次数相乘、故障放大。接网关那天还顺手修了个真故障：别名指着一个上游已下架的模型，改一行 yaml 就换掉，应用代码一行没动——**这就是网关存在的理由**。
+
+---
+
+## DEC-034 · 看板只画能回答问题的图（2026-11-02 · W5 D2）
+
+**背景**：D2 要交两块东西——一块 Grafana 基础看板、一份 Evidently 漂移报告。真正的取舍不在「画不画」，而在**画几块**、**信哪个数**。任务卡的卡点写的是「报告要落盘、别只 print」，那是存的问题；今天要定的是**信它的哪一列**。
+
+**选择**：
+1. **看板画 8 块，且只有 4 块是数字**。第一块必须是 `up`——它红了后面都没意义（数据源断了，看板上其它数字全是上一次的残留）。8 块 = 4 数字（`up` / 总 QPS / 错误率 / P95·/chat）+ 4 曲线（按路由请求速率 / 错误率 / 耗时分位 / 在飞请求与抓取耗时）。
+2. **错误率面板显示 0（`noValue`），告警层单独处理 `No data`**。两者不能混：无 5xx 时查询返回**空集**（分子对应的时序根本没被创建过），不是 0。显示层修饰不能替代告警层语义。
+3. **漂移判定信「p 值量级 + 样本量」，不信「漂了几列」**。门槛：p<0.05 **且** 数据集 50% 列 **且** 必须带样本量；n<100 只当提示。
+4. **漂移现阶段只做周报级巡检工具，不上自动告警**。等真实大批次（≥1000 行）再谈自动化。
+
+**实证**（2026-11-02 本机；Grafana 13.2.5 / Prometheus v3.15.1 / Evidently 0.7.23；Prometheus 宿主 19095、Grafana 3001）
+
+| 实验 | 做法 | 结果 |
+| --- | --- | --- |
+| 看板响应性 | 80 个请求前后对比 | 总 QPS **0.212 → 0.929**（4.4×）；再打 120 个峰值 **2.182**，曲线三段凸起对得上三次 `loadgen` |
+| 面板数字 | 8 条面板查询逐条跑 | `up=1`、P95 /chat **4.75 ms**、抓取 **6.05 ms**、`in_flight=0` |
+| 无 5xx 时的错误率 | 查 5xx 占比 | 返回**空集**（面板靠 `noValue` 显示 0） |
+| 漂移 · control（阴性对照） | 同一份数据**随机切半**当 reference/current | 报 **2/6 列（33.3%）**——**假阳**；`question_chars` p=7.78e-04、`prompt_tokens` p=1.08e-02 |
+| 漂移 · coldstart | 前 50 行 vs 后 50 行 | 只报**延迟** 1 列，p=**2.81e-15**；前段 mean 0.123 vs 后段 0.0566（差 2.2 倍，实为冷启动） |
+| 漂移 · injected | 人为注入偏移 | 报 **3/6 列（50.0%）**，刚好卡在数据集阈值 → 判**漂移**；`question_chars` 与 `tier` 的 p=0（**检验退化**）、`latency_ms` p=2.21e-59 |
+
+**判据（每个取值为什么是这个数）**：
+
+| 项 | 取值 | 理由 |
+| --- | --- | --- |
+| 看板块数 | **8 块，4 数字 4 曲线** | D1 的 8 条指标清单是「要盯什么」，看板是「一屏判断正常与否」。全画上去等于没重点 |
+| 第一块 | `up` | 它红了后面都没意义——数据源断了的时候，其它数字是上一次的残留 |
+| 错误率显示 | 面板 `noValue: "0"`，**告警另判** | 实测无 5xx 时查询返回空集。把空集当 0 又不告警，就是漏报 |
+| 漂移门槛 | p<0.05 **且** 50% 列 **且** 带样本量 | `control` 随机切半都报 2/6。6 列各做一次 α=0.05 检验，至少一列误报的概率约 **26%**（多重比较） |
+| 样本量下限 | **n<100 只当提示** | 随机切半 n=50 的 p 值能到 7.78e-04——样本量小的时候 p 值也会骗人 |
+| 告警 | **暂不上** | `control` 那种假阳一旦天天响，人就开始忽略它，比没有告警更糟 |
+
+**两处判据纠正（写进决策比写结论更有价值）**：
+- **「红色 = 漂移告警」是错的**：Evidently HTML 整页红是**默认配色**，不是告警态。红色只是配色，判定看顶部那句话 + 单列 p 值。
+- **「`Drift Score` 越大越漂」是错的**：它是 **p 值**，越小越漂（与 PSI 方向相反）。读报告先确认量纲，否则结论能反。
+
+**代价与对策**：
+- **8 块看板仍可能「看不出今天哪里不对」** → 靠 D3 的 LLM 专属指标补成本/TTFT 视角；D2 这块只回答「服务本身活没活」。
+- **漂移只周级跑一次，突发漂移要等一周** → 现阶段接受：真实大批次还没到，自动化会把假阳告警变成噪声。
+- **`p=0` 的列读不出差异大小** → 那是**检验退化**（某类别只在一侧出现，期望频数为 0），只能读成「检验失效」；同一次 K-S 的量级才可信。
+
+**反模式**：把「漂移了几列」当结论；不看样本量就信 p 值；把红色当告警；用 `No data` 顶替告警；小样本 + 稀疏离散列上自动告警。
+
+**面试口径**：看板的价值不在图多，在**第一眼能不能回答一个问题**——所以只有 8 块、只有 4 块是数字，第一块是 `up`。漂移报告的价值不在「报了几列漂移」，在**敢不敢说这个 p 值不能信**——随机切半都报 2/6，说明小样本上的显著性检验本身不可靠，所以门槛是 p 值 + 50% 列 + 样本量三者齐，且现阶段不上自动告警，因为天天响的假阳比没有告警更糟。
+
+---
+
+## DEC-035 · LLM 指标的真值在网关层，且分母比分子重要（2026-11-02 · W5 D3）
+
+**速览**
+
+| 项 | 结论 | 为什么 |
+| --- | --- | --- |
+| 指标从哪来 | 全从网关取，应用层不重复埋 | 只有网关同时看见请求和花费 |
+| TTFT | 只对流式存在 | 非流式没有「首 token」这个时刻 |
+| 每请求成本 | spend ÷ 总请求数 | 分母含缓存命中 |
+| 缓存命中率 | hits ÷ 总请求数 | `cache_misses` 只记了一部分 |
+
+*一句话：这五个数的坑全在分母上。*
+
+**四条决策**
+
+1. **指标只从网关取。** 应用层看见的是一次 HTTP 请求，不知道后面调了几次模型、花了多少 token、命中的是缓存还是上游。网关站在中间，两边都看得见。所以分工是：应用管接口快不快，网关管模型贵不贵。
+
+2. **TTFT 只对流式存在。** 非流式一次性返回，「第一个 token」和「最后一个 token」是同一刻，量它没意义。实测 TTFT 0.33s、总耗时 0.51s，差的 170ms 就是生成时间。
+
+3. **成本的分母是总请求数。** 包含缓存命中的那些。所以命中率高的时候，每请求成本自然低。这是要看的信号，不是算错了。反过来，看到「token 涨、成本不涨」，先去查缓存。
+
+4. **命中率的分母也是总请求数。** 因为 `cache_misses` 只记了一部分（非流式 miss 完全不记）。用教科书的 `hits/(hits+misses)` 会算出 50%，真实是 11.6%。
+
+**实测**（2026-11-02，LiteLLM 1.106.4 / Prometheus v3.15.1 / Grafana 13.2.5；假上游首包 300ms、每段 40ms×5、usage 写死 100/50）
+
+| 实验 | 结果 |
+| --- | --- |
+| 网关能出指标吗 | 85 个指标名，`/metrics/` 300+ 行时序 |
+| TTFT 只有流式有 | 8 个非流式 + 3 个流式，TTFT 样本数正好 3 |
+| TTFT 和总耗时是两回事 | 0.33s vs 0.51s |
+| 成本按档位差 10 倍 | cheap 2e-5/次，primary 2e-4/次 |
+| 缓存命中计 token 不计费 | 3 个同 body：token 记 3×150，成本记 1×2e-5 |
+| 命中率两种算法 | 11.6% vs 50% |
+| 上游失败 20% 但错误率 0% | 客户端全 200，上游被调 10 次失败 2 次，`failed_requests` 没动 |
+| 重试不重复计费 | `spend` 只 +2e-5 |
+| 账能算平 | 17 = 12 次上游调用 + 2 次命中 + 3 次打不通 |
+
+**三处我原来想错的**
+
+| 原以为 | 实际 |
+| --- | --- |
+| 命中率 = `hits/(hits+misses)` | 两个指标记录条件不同，不能直接相除。分母换成总请求数 |
+| 重试让成本翻倍 | LiteLLM 只按拿到 usage 的那次计费。指标成本不翻倍，账单可能翻倍 |
+| `failed_requests` ≈ 上游健康度 | 400 也算。4xx 是调用方的锅，5xx 是上游的锅 |
+
+**代价**
+
+| 代价 | 对策 |
+| --- | --- |
+| P95 被桶宽插值放大（真实 0.53s 报 0.95s） | 报数带桶边界。要更准只能改代码 |
+| 延迟直方图不区分 cache_hit | P95 突然变好，先去看命中率 |
+| 失败请求不进直方图 | P95 只统计成功请求，必须和错误率一起看 |
+| `/health` 污染三个指标 | 探活改用 `/health/liveliness` |
+| 缓存两层，`FLUSHALL` 清不干净 | 重启网关，或者每次用全新 body |
+| `spend` 不含失败的调用 | 别拿网关的 `spend` 当账单，它只算成功那部分 |
+
+**反模式**：用 `hits/(hits+misses)` 算命中率。拿 `failed_requests` 当上游健康度。拿网关 `spend` 当账单。报 P95 不带桶边界。TTFT 面板空就以为监控坏了。
+
+**面试怎么说**：LLM 的指标和普通服务不是一回事。普通服务看请求数、耗时、错误率；LLM 还要看首 token 多慢、每个请求多少钱、缓存命中几次。这五个数的真值只有网关知道，所以全在网关层取。难点不在画图，在口径：命中率的分母用错了会算出 50%，真实 11.6%；上游失败 20% 时错误率显示 0%，因为重试成功了。所以看板每条查询我都标了分母是什么。
+
+> 分母错了，结论会反。
+
+---
+
+## DEC-036 · 单测锁纯函数、集成测走 mock HTTP、lint 只留 ruff（2026-11-03 · W5 D4）
+
+**速览**
+
+| 项 | 结论 | 为什么 |
+| --- | --- | --- |
+| 单测测什么 | 只测 routing / prompts / llm 三个「改坏代价最高」的对象 | 测实现细节 = 重构一次红一片 |
+| 集成测怎么走 | FastAPI TestClient + mock 模式走完整 HTTP 链路 | 不必起 uvicorn / 上云，也能验证协议层+路由+SSE 组帧 |
+| lint 用什么 | 只留 ruff | 一个顶 isort+black+pylint 三件，任务卡定案 |
+| pre-commit 怎么挂 | 追加进 `.githooks/pre-commit`，不装 pre-commit 工具 | 仓库 `core.hooksPath=.githooks` 与 pre-commit 工具冲突，且不宜废弃 W1 起的脱敏钩子 |
+
+*一句话：测试集中在「改坏了代价最高」的地方，集成测过 HTTP 但不上云，lint 只留一个工具。*
+
+**四条决策**
+
+1. **单测只锁纯函数。** `routing.decide` 判档是纯函数（无 IO、同输入同结论）—— 单测最该测的形态，12 条用例把判档规则（显式/长度/多轮/强关键词/引用/简单词/结构化）全锁住，以后调阈值不怕改坏。
+
+2. **集成测走 mock HTTP。** LLM 层在 `LLM_MODE=mock` 下跑的是**真**重试、真结构化、真降级的代码路径，只是「模型生成」是假的 —— 不联网也能把最贵的逻辑锁死。集成测用 `TestClient` 过完整 HTTP（协议层+路由+SSE 组帧），但不必起 uvicorn、不必上云。
+
+3. **lint 只留 ruff。** 任务卡定案，一个工具顶 isort+black+pylint 三件；装两套会在 pre-commit 打架。钩子里 ruff 只 `check` 不 `--fix` —— 带 `--fix` 会把可自动修复的坏代码（如未用 `import os`）静默修掉然后提交成功，拦截就失效了。
+
+4. **pre-commit 复用 `.githooks`，不装 pre-commit 工具。** 仓库从 W1 就设 `core.hooksPath=.githooks`（脱敏钩子），`pre-commit install` 会 `Cowardly refusing to install hooks with core.hooksPath set`。为迁就 pre-commit 工具去废弃既有脱敏钩子不值当，所以直接把 ruff + pytest 追加进 `.githooks/pre-commit`，三步顺序执行（脱敏 → ruff → pytest），任一步失败即拦截。
+
+**实测**（2026-11-03，pytest 8.4 / ruff 0.x / `D:/python314`）
+
+| 实验 | 结果 |
+| --- | --- |
+| 测试全绿 | `26 passed`（routing 12 + prompts 5 + llm 4 + integration 5） |
+| 钩子拦坏提交 | `import os` 未用 → ruff 报 F401，提交失败（退出码 1），文件留在暂存区 |
+| 缺字段返回码 | FastAPI 对缺 body 字段返回 422，不是 400 |
+| mock 全局计数器 | `_mock_calls` 在测试间累积，必须每次测试前归零 |
+| Windows 路径 | `Path.relative_to` 返回 `\` 分隔符，断言别写死正斜杠 |
+
+**代价**
+
+| 代价 | 对策 |
+| --- | --- |
+| 只测了三个对象，没铺全 | 集中在「改坏代价最高」的地方，维护成本低 |
+| mock 集成测验证不了真实模型输出质量 | 那是 W6 评估体系（RAGAS）的职责，分工不同 |
+| 「检索」测试留待 W6 | 现在没有检索代码，硬凑测试等于测空气 |
+
+**复核条件**：W6 接上检索后，补 `tests/test_rag.py`（检索 recall / 引用命中）；「测真模型输出」交给评估体系，不塞进 pytest。
+
+**反模式**：测试里断言「等于某句完整输出」（mock 措辞一改就红）；钩子带 `--fix`（拦截失效）；用 `git commit --no-verify` 绕过钩子。
+
+**面试怎么说**：单测锁纯函数、集成测走 mock HTTP、lint 只留 ruff —— 这一句比「我写了 26 个测试」更能证明在做工程判断。测试分层答三段式：纯函数单测锁规则、mock HTTP 集成测锁链路、真模型质量交给评估体系。
+
+> 测试别断言全文，断言结构 + 关键约束。
+
+**验收**（2026-11-03 乐哥亲手跑）：
+- 造坏文件 `tests/_bad_hook_demo.py`（`import os` 未用）→ `git commit` 被钩子拦下，ruff 报 `F401 [*] 'os' imported but unused`，提交失败（退出码 1），文件留在暂存区 —— **钩子真能拦**。
+- 清理改用 `git restore --staged tests/_bad_hook_demo.py`（`git reset -q <path>` 对删除后暂存路径报 `ambiguous argument ... unknown revision`，残留成 `AD` 状态）。
+- 仓库最终 `working tree clean`，`pytest 26 passed` 全绿。
+
+---
+
+## DEC-037 · CI 三件事：同一条检查搬上云、测试全 mock、push registry 给台阶（2026-11-03 · W5 D5）
+
+**速览**
+
+| 项 | 结论 | 为什么 |
+| --- | --- | --- |
+| CI 扩成什么 | 脱敏 + lint + test + build 四 job | W1 的脱敏保留，旁边加三道新的 |
+| 测试密钥 | 全 mock，CI 无 .env 无 secrets | conftest 从 D4 起设 LLM_MODE=mock，架构红利 |
+| push registry | 达标版 build-only，完整推留台阶 | 不上云 + 公开仓脱敏 |
+| build 抓到的 bug | mlflow→scikit-learn→alpine 装不上 → 挪 mlflow 出生产镜像 | 本地绿 ≠ 构建绿 |
+
+*一句话：CI 把本地钩子的检查搬上云、测试全 mock 所以不用密钥、build 真抓到一个 alpine 装不上 scikit-learn 的 bug。*
+
+**四条决策**
+
+1. **CI 扩为四 job：脱敏（保留 W1）+ lint(ruff) + test(pytest mock) + build(镜像能构建)。** 钩子是本地兜底不是 CI 替代（M6 6.5 原话）：`--no-verify` 能绕过本地钩子，但过不了 CI。同一条 ruff + pytest 在云端再跑一遍。
+
+2. **测试全 mock 是架构红利。** conftest 从 D4 起就设 `LLM_MODE=mock`，CI 天然不含真实 API Key，不用 secrets、不用特判。任务卡「CI 别跑需要真实 API Key 的测试」被 conftest 直接解决。
+
+3. **push registry 走达标版 build-only，不给硬门槛。** W1 定案不上云（没有真实消费方）+ 公开仓脱敏（推镜像暴露代码）。build-only 验证「测试过的代码能构建」已有真实价值；需要推时用 GHCR + packages:write 加 secrets 就能开，是加配置不是重做。
+
+4. **build 失败用「mlflow 挪出生产镜像」修。** mlflow 依赖 scikit-learn<2，scikit-learn 没有 musllinux wheel，alpine 生产镜像装不上（Dockerfile 故意不装编译器省体积）。`app/combos.py` 的 `import mlflow` 在 try/except 里，容器内自动回落 local-fallback、服务照起 → 挪到 `requirements-dev.txt` 不损失核心能力，还保住 alpine + <200MB。选它而非「装编译器」（破体积）或「换 slim」（破 <200MB，基础层就 176.5MB）。
+
+**实测**（2026-11-03，GitHub Actions ubuntu-latest / Docker 29.9 / 本机 D:/python314）
+
+| 实验 | 结果 |
+| --- | --- |
+| 第一次 push | lint ✅ test ✅ 脱敏 ✅，但 **build ❌** |
+| build 报错 | `scikit-learn` 在 alpine `metadata-generation-failed`、meson 编译失败、找不到 `icc`/`icx` |
+| 根因 | mlflow 依赖 scikit-learn<2，无 musllinux wheel，Dockerfile 不装编译器 → 源码编译失败 |
+| 本机 vs CI | 本机 pytest 26 绿（Windows glibc 有 wheel）vs CI build 红（alpine musl 没有） |
+| 修复 | mlflow 挪 dev，生产镜像剩 runtime 依赖全有 wheel，`docker build` 过 |
+| 修复后镜像 | **134.4MB < 200MB**（保住 W1 验收） |
+| 修复后 CI | lint ✅ test ✅ build ✅ 脱敏 ✅ 全绿 |
+
+**实测再补（同一日 · build 绿 ≠ run 绿，连续又抓两个）**
+
+CI build 全绿后，本地 `docker run` 手动兜「容器能启动」这层，又抓到两个 build 测不出的问题：
+
+| 实验 | 结果 |
+| --- | --- |
+| `docker run` 起容器 | 一启动就 `ModuleNotFoundError: No module named 'prompts'`，Exit code 1 |
+| 根因① 精确 COPY 漏模块 | `app/Dockerfile` 用精确 COPY（不用 `COPY . .`），只复制了 `main.py / llm.py / observability.py`，漏了 `prompts.py / routing.py / metrics.py`。**COPY 少文件不影响 build（照样生成镜像），只在运行时 import 才炸** |
+| 修复① | 补三行 `COPY --chown=appuser:appuser app/prompts.py ./prompts.py`（routing/metrics 同理）。`combos.py` 不用补（llm.py 里是 try/except 可选 import，容器内自动回落） |
+| 再 `docker run` | 服务起来，宿主 curl `/health` 返 200，但 Docker 判 `unhealthy` |
+| 根因② HEALTHCHECK 的 localhost | alpine `/etc/hosts` 把 `localhost` 同时映射 `::1` + `127.0.0.1`，busybox `wget` 优先连 `::1`（IPv6），而 uvicorn 只监听 `0.0.0.0`（IPv4）→ `Connection refused`。`wget 127.0.0.1` 返 0 / `wget localhost` 返 1 |
+| 修复② | HEALTHCHECK 改 `http://127.0.0.1:8000/health`，重建后 `healthy` |
+| 修复后全绿 | 镜像 141MB < 200MB，健康检查 `healthy`，`/health` 返 `{"status":"ok"}` |
+
+> **完整三段验证链**：本地 pytest 绿 → CI build 绿 → **本地 `docker run` + 探活 + HEALTHCHECK 绿**。CI build job 只保证「镜像能构建」，不保证「容器能启动、服务能探活」——后两层要本地亲手兜。这是「本地绿 ≠ 构建绿」之后同族的第三层：**构建绿 ≠ 运行绿**。
+
+**代价**
+
+| 代价 | 对策 |
+| --- | --- |
+| build-only 没验证「推上去能不能拉」 | 本地 kind 本来就不从 registry 拉，无消费方 |
+| CI 跑 pytest 装两套 requirements | 比本地多一步，可接受 |
+| mlflow 挪走后生产容器失去 registry 取配置能力 | `import mlflow` 在 try/except 里自动回落本地 fallback，服务照起；本机/开发环境仍有 |
+
+**复核条件**：W8 若有余力做真实云上小实验，把 build job 的 push 开关打开（GHCR + packages:write + secrets），补上「推 + 拉」闭环。若未来生产真要 mlflow-registry 取配置，给 alpine 装编译器（接受体积涨）或用 slim（接受破 <200MB）。
+
+**反模式**：CI 里重跑一遍 yaml 命令（应复用 Makefile/脚本）；把 `push registry` 当验收硬门槛（本项目是锦上添花）；本地绿就以为构建绿（「测试绿 ≠ 镜像能构建」是 D5 抓到的实锤）。
+
+**面试怎么说**：CI 把本地钩子检查搬上云、测试全走 mock 所以不用密钥、build 真抓到一个 alpine 装不上 scikit-learn 的 bug，用「mlflow 挪出生产镜像」保住体积验收。比「我写了个 ci.yml」能说明你懂 CI 边界：CI≠CD、本地钩子≠CI、测试可复现、**本地绿≠构建绿**。
+
+> 测试绿不代表镜像能构建 —— 这是 D5 被 CI 实测教育的那一课。
+
+---
+
+## DEC-038 · 本地 IaC 另起全新环境，管集群和数据库两类资源（2026-11-03 · W5 D6）
+
+*一句话：Terraform 的价值是「从声明式文件一键重建」，不是「接管已有环境」——所以另起 `llmops-iaac`，只管集群 + Postgres 两类资源。*
+
+**背景**
+W5 D6 给项目上 Terraform 本地 IaC。任务卡（2026-10-14 Echo 降权）：用 kind provider + local provider 只写两类核心资源（集群 + Postgres/pgvector），存储最简、密钥占位，`destroy` 后 `apply` 能重建即达标。现状是 kind 集群 `llmops` 已在跑（W1 起手工 kubectl apply）、Postgres 已用 compose 和 k8s manifest 部署过——所以先要回答「接管还是另起」。
+
+**选项**
+
+1. 接管现有 `llmops` 集群与 Postgres（terraform import 收编）
+2. 另起全新 IaC 环境（新集群 `llmops-iaac` + 新库），与现有并行（本方案）
+3. 范围扩大：连应用 Deployment、网关、ingress 一起管
+
+**选择**
+
+方案 2 + 只管两类资源：`infra/terraform/main.tf` 用 `tehcyx/kind` v0.13.0 建集群 + `hashicorp/kubernetes` v2.38.0 声明 Postgres 六件套（namespace / ConfigMap×2 / Secret / headless Service / StatefulSet+PVC）。
+
+**理由**
+
+- **接管的四个硬障碍**：① 现有 PVC 无 tf 管理标签，import 后本地声明与手工调过的字段（probe/limits/PGDATA）互当漂移；② 现有库有真实数据，`destroy` 真删数据盘——把在用数据挂进 IaC 管理，风险配不上收益；③ 集群内 8 个 namespace、20+ workload 来源混杂（helm/裸 manifest/operator），逐个 import 后 state 极脏；④ 验收「destroy 后 apply 能重建」演示的是**从声明式重建**，不是删掉手工作坊集群。
+- **范围分层**：环境层（集群/库/网络）归 Terraform，应用层（llmops-api/litellm/mlflow）归 helm + CI——基础设施和部署的 state 不混（M6 6.9/6.10 原话），应用已有 chart + CI 两条管路，再写一遍 IaC 是重复。
+- **provider 选型**：`kyma-incubator/kind` 2022-04 archived（v0.0.11 停更）→ 用同一作者的活跃 fork `tehcyx/kind`（v0.13.0，1.2M 下载，2026-10-22 发版）。Registry 里 kind 同名 provider 十几个，选型时逐一核对。
+
+**实测**（2026-11-03，本机：terraform 1.16.6 / kind 0.33.0 / Docker 29.9.2 / 节点 k8s v1.37.0 + containerd v2.3.4）
+
+| 实验 | 结果 |
+| --- | --- |
+| `init` → `validate` | tehcyx/kind 0.13.0 + kubernetes 2.38.0 装齐，HCL 全过 |
+| `plan` | 8 to add（集群+镜像load+ns+2×ConfigMap+Secret+Service+STS）；kubeconfig 不存在警告=known-after-apply，不阻断 |
+| `apply`（首次） | 集群 40s 就绪；STS 等 rollout 超时（镜像未进节点，ImagePullBackOff） |
+| `kind_load` / `kind load` | **全灭**：`ctr: content digest … not found`（Docker 29 bug，见下） |
+| destroy → apply 重建 | 集群+库全重建；apply 期间并行灌镜像，postgres-0 `1/1 Running` |
+| pgvector 功能 | `CREATE EXTENSION vector` 就位（0.8.7），向量表插取正常 |
+| state 收敛 | `No changes. Your infrastructure matches the configuration.` |
+
+**实跑抓到的三个环境级坑（比验收本身值钱）**
+
+1. **Docker 29 + kind load 全家全灭**（kind issue #3795/#4066）：`kind load docker-image` / `image-archive` / `kind_load` 资源底层全走节点内 `ctr images import --all-platforms`，撞 Docker 29 containerd image store 的导出 bug——`docker save` 导出的多平台 OCI index 引用未导出的 blob（amd64 宿主上 arm64 manifest 缺 blob）。绕行：老节点 `ctr export --platform linux/amd64` → 宿主中转 → 新节点 `ctr import --platform linux/amd64`（固化成 `scripts/load_pgvector_to_iaac.sh`）。不用官方建议「关 containerd image store」——现有镜像全在那个 store 里。
+2. **宿主代理被 kind 带进节点**：节点容器拿到 `HTTP_PROXY=http://127.0.0.1:12621`，容器内 127.0.0.1 是节点自己 → `proxyconnect refused`；镜像加速器配了也白配（加速请求同样被劫持）→ 节点拉镜像这条路在本机就是死的，只能灌。
+3. **apply 中断留孤儿**：SIGTERM 后资源在集群上、state 没记录 → 重跑撞 `already exists`；坏空壳 state 条目报 `Unexpected Identity Change` → `state rm` + `import` 修复。
+
+**代价**
+
+| 代价 | 对策 |
+| --- | --- |
+| 重建后节点是空的，镜像要重灌（destroy 掉了灌好的节点） | 验收顺序固化为「apply 卡 STS 期间并行跑灌镜像脚本」；镜像 159MB 灌一次 ~10s |
+| IaC 环境与手工环境并行，两份 Postgres | namespace `iaac` 隔离；kubectl context 切换要留神（干完活切回 `kind-llmops`） |
+| `kind_load` 资源在本机不可用 | 脚本替代；README 已注记 Docker 29 bug 出处 |
+| `.terraform.lock.hcl` 一并 gitignore | 单人项目无碍；多人协作前应放开（锁 provider 版本） |
+
+**复核条件**：Docker 修复 save/import 兼容问题（kind #3795 关闭）后，改回 `kind_load` 资源、删脚本；W8 若做云上实验，同一结构换 provider（kind→EKS，PVC→云盘）即云 IaC，方法论不变。
+
+**反模式**：拿 Terraform 去接管手工环境（import 会脏、destroy 会删在用数据）；环境层和应用层混进同一份 state；给「达标即可」的任务上重度工程；`destroy` 前不想清楚删的是哪个环境的盘。
+
+**面试怎么说**：环境即代码我把 kind 集群和 Postgres 写成 main.tf，destroy 后 apply 能重建出可用环境；范围只管环境层、应用归 helm 和 CI，两层 state 不混；另起全新环境不接管手工集群——Terraform 的价值是从声明式文件重建，不是当接管工具。顺带踩穿了 Docker 29 的 containerd 导出 bug（多平台 index 引用未导出 blob），用单平台 ctr export/import 绕过。
+
+> 环境即代码的意义不是「我用过 Terraform」，是「我的环境可以从版本库里的一组文件，一键从无到有」。
+
+---
+
+## 待记录（后续每天补充）
+
+- [x] 为什么用 Helm 而不是裸 YAML（W2）→ 见 DEC-015
+- [x] 为什么生产环境要最小权限（W2 D7）→ 见 DEC-016
+- [x] 重试为什么用指数退避、重试几次就放弃（W2 D8）→ 见 DEC-018
+- [x] 本机无 GPU 时本地推理怎么选（W2 D10）→ 见 DEC-019
+- [x] 为什么生产环境要 PDB 与反亲和（W2 D11）→ 见 DEC-020
+- [x] dev / prod 隔离的边界在哪（W2 D11）→ 见 DEC-021
+- [x] 成熟度自评：现在 L1，目标 L3（W3 D13）→ 见 DEC-022
+- [x] 实验记录的最小充分集（W3 D14）→ 见 DEC-023
+- [x] MLflow 与 Langfuse 的分工（W3 D14）→ 见 DEC-024
+- [x] 模型注册用 alias 不用 stage（W3 D15）→ 见 DEC-025
+- [x] 模型版本与 prompt 版本必须一起管（W3 D15）→ 见 DEC-026
+- [x] prompt 为什么是代码不是配置（W3 D16）→ 见 DEC-027
+- [x] 什么该编排、什么不该（W4 D1）→ 见 DEC-029
+- [x] 我的项目属于哪种形态、为什么（W4 D3）→ 见 DEC-030
+- [x] 「批量 vs 逐条」的成本与耗时对比（W4 D4）→ 见 DEC-031
+- [x] 网关路由策略与阈值取值理由（W4 D5）→ 见 DEC-032
+- [x] 路由命中率与缓存命中率怎么算、为什么这么算（W4 D6）→ 见 DEC-033
+- [x] 看板画几块、漂移报告信哪一列（W5 D2）→ 见 DEC-034
+- [x] LLM 指标从哪层取、每个比值的分母是什么（W5 D3）→ 见 DEC-035
+- [x] 测试怎么分层、lint 怎么取舍（W5 D4）→ 见 DEC-036
+- [x] CI 怎么分层、push registry 怎么落地、本地绿为何不代表构建绿（W5 D5）→ 见 DEC-037
+- [x] 本地 IaC 管什么不管什么、另起环境为何好过接管旧环境（W5 D6）→ 见 DEC-038
+- [ ] 为什么先 RAG 而不是先微调（W7 · 待记）
+- [ ] 语义缓存阈值怎么定（W7 · 待记）

@@ -1,0 +1,43 @@
+# W6 评估环境（.venv-eval）——独立于生产 requirements.txt 与 requirements-dev.txt
+#
+# 为什么单独一份：这里的依赖包含 CPU 版 torch / sentence-transformers / ragas，
+# 体积和版本约束都跟 /chat 服务不兼容，不能进生产镜像。
+# 本机是 Python 3.13.14、无 GPU，模型走本地目录 models/bge-small-zh-v1.5（512 维）。
+#
+# 复跑 W6 实验：
+#   python -m venv .venv-eval
+#   ./.venv-eval/Scripts/python.exe -m pip install -r requirements-eval.txt
+#   ./.venv-eval/Scripts/python.exe scripts/w6d1_chunk_bench.py
+#   ./.venv-eval/Scripts/python.exe scripts/w6d1_ingest_pgvector.py
+#   ./.venv-eval/Scripts/python.exe scripts/w6d1_verify_pgvector.py
+#
+# ⚠️ 版本坑（2026-11-04/05 实测，别随意升）：
+#   - ragas 0.4.3 需要 langchain 0.3 线。pip 默认会拉 langchain-community 0.4.2，
+#     里面已移除 vertexai 模块，import ragas 直接 ModuleNotFoundError。
+#   - 模型从 ModelScope 取，HF 三个入口在本机都不通（脚本 fetch_embedding_model.sh）。
+#   - 本机 pip 走代理时大包容易下载残缺；torch 用 CPU wheel，别装 CUDA 版。
+
+# ---- 向量与检索 ----
+sentence-transformers==6.2.0
+torch==2.15.0
+numpy==2.5.4
+scikit-learn==1.9.1
+jieba==0.42.1
+rank-bm25==0.2.2
+
+# ---- 灌库（W6 D1，2026-11-05 新增）----
+# psycopg 3 的 binary 版带预编译 wheel，Windows 上不用装 libpq。
+# 连接一律 127.0.0.1；.env 里的 localhost 会先解析 ::1 卡住。
+psycopg[binary]==3.3.8
+SQLAlchemy==2.1.8
+
+# ---- RAGAS 评估（11/12 用，LLM-as-judge）----
+ragas==0.4.3
+datasets==5.1.0
+pandas==3.1.0
+pyarrow==26.0.1
+# 锁住 0.3 线，否则 ragas import 失败（见上方版本坑）
+langchain>=0.3,<1.0
+langchain-core>=0.3,<1.0
+langchain-community>=0.3,<0.4
+langchain-openai>=0.3,<1.0

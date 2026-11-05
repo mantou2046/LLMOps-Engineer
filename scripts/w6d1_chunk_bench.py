@@ -9,7 +9,10 @@
     evals/out/w6d1/cache/*.npy         embedding 缓存；重跑自动复用，可中断续跑
 
 口径:
-    - 语料 = docs/*.md 六篇真文档，逐篇切分，块不跨文档。
+    - 语料 = evals/corpus/ 六篇**冻结快照**（取自 commit 6ba1baf，104,798 字符），
+      逐篇切分，块不跨文档。冻结原因：docs/decisions.md 会随决策日志增长，
+      直接读 docs/ 会让同一份实验每次跑出不同数字（2026-11-05 实测污染 +5,299 字符）。
+      版本清单见 evals/corpus/manifest.json。
     - 递归切：按分隔符优先级切到 <= chunk_size，贪心合并；
       从第二块起把前一块末尾 overlap 个字符复制为前缀（块长上限 = size + overlap）。
     - 语义切：按句末标点切句，bge-small-zh-v1.5 算相邻句余弦，
@@ -32,8 +35,9 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS_DIR = ROOT / "docs"
 EVALS_DIR = ROOT / "evals"
+# 语料读冻结快照，不读 docs/：决策日志会持续增长，直接读 docs/ 会让基线不可复现。
+DOCS_DIR = EVALS_DIR / "corpus"
 OUT_DIR = EVALS_DIR / "out" / "w6d1"
 CACHE_DIR = OUT_DIR / "cache"
 MODEL_DIR = ROOT / "models" / "bge-small-zh-v1.5"
@@ -269,7 +273,7 @@ def main():
 
     result = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "corpus": {"dir": "docs/*.md", "files": [n for n, _ in docs], "chars": corpus_chars},
+        "corpus": {"dir": "evals/corpus/*.md (frozen @ 6ba1baf)", "files": [n for n, _ in docs], "chars": corpus_chars},
         "model": "models/bge-small-zh-v1.5 (bge-small-zh-v1.5, 512-dim, cosine)",
         "probe_set": "evals/chunk_probe_set.jsonl",
         "metric_notes": {

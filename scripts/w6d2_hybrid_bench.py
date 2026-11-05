@@ -155,7 +155,7 @@ def main():
 
     result = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "corpus": {"dir": "docs/*.md", "files": [n for n, _ in docs], "chars": corpus_chars},
+        "corpus": {"dir": "evals/corpus/*.md (frozen @ 6ba1baf)", "files": [n for n, _ in docs], "chars": corpus_chars},
         "chunks": len(chunks),
         "chunker": "recursive_B(400/50)",
         "model": "models/bge-small-zh-v1.5 (512-dim, cosine)",

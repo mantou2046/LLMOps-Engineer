@@ -1,0 +1,47 @@
+{
+  "purpose": "W6 D1/D2 实验与 11/9 灌库共用的冻结语料快照；不要直接编辑，换语料按流程重建",
+  "source_commit": "6ba1baf",
+  "source_path": "docs/*.md",
+  "frozen_at": "2026-11-05",
+  "reason": "docs/decisions.md 会随决策日志增长。2026-11-05 新增 DEC-039/040 后语料从 104798 涨到 110097 字符，块数 330→345，且探针关键词被写进语料，基线失去可复现性。",
+  "total_chars": 104798,
+  "total_files": 6,
+  "files": [
+    {
+      "file": "decisions.md",
+      "bytes": 114957,
+      "chars": 66997,
+      "sha256": "3fbc1cb614d286ababf880aa9e8173882827439a7cc4575c4b995d6badf3c6ba"
+    },
+    {
+      "file": "docker-data-move-to-E.md",
+      "bytes": 6978,
+      "chars": 4468,
+      "sha256": "0d6a7c9a1650ee8cfc3e6f108bf2e8fa28c330151d05f52018fb8a9b3966fd37"
+    },
+    {
+      "file": "env-setup.md",
+      "bytes": 13275,
+      "chars": 8460,
+      "sha256": "cfaacee34ffc217937372d706e946763968b4a204136f78424112794770c6b0d"
+    },
+    {
+      "file": "k8s-concepts.md",
+      "bytes": 20504,
+      "chars": 13686,
+      "sha256": "267c38e55cfb6617a47e362e15cd33eb80da45493b38681df1a01c0807cbafb6"
+    },
+    {
+      "file": "kubectl-cheatsheet.md",
+      "bytes": 8653,
+      "chars": 6195,
+      "sha256": "67ff30fa93fd194bacd4057726d7d81a7bb09a07afe329735e71300211b241a8"
+    },
+    {
+      "file": "resource-ledger.md",
+      "bytes": 7305,
+      "chars": 4992,
+      "sha256": "accea314b8c7b3a9d6add1515bcbe6c6bdc37213062719d0f45359eefaa4bdc7"
+    }
+  ]
+}
