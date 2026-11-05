@@ -16,6 +16,9 @@
 #     里面已移除 vertexai 模块，import ragas 直接 ModuleNotFoundError。
 #   - 模型从 ModelScope 取，HF 三个入口在本机都不通（脚本 fetch_embedding_model.sh）。
 #   - 本机 pip 走代理时大包容易下载残缺；torch 用 CPU wheel，别装 CUDA 版。
+#   - rerank 模型 bge-reranker-base（1.11 GB）走 scripts/fetch_reranker_model.sh
+#     从 ModelScope 直连下载，不进仓库（models/ 已 gitignore）。
+#     用 transformers 的 AutoModelForSequenceClassification 加载，不需要 FlagEmbedding。
 
 # ---- 向量与检索 ----
 sentence-transformers==6.2.0
