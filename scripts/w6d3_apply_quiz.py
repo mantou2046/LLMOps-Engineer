@@ -8,12 +8,63 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "evals" / "golden_set.jsonl"
+QUIZ_HTML = ROOT / "evals" / "golden_set.quiz.html"
+
+
+def pretty(s: str) -> str:
+    """与 w6d3_web_quiz.py 的显示规则一致。"""
+    return re.sub(r"[*`]", "", re.sub(r"^(?:>\s*|#\s*)", "", s)).strip()
+
+
+def display_maps() -> dict:
+    """读网页内嵌数据，建「显示文本 -> 原文逐字值」映射。"""
+    if not QUIZ_HTML.exists():
+        return {}
+    m = re.search(r"const DATA = (\{.*?\});\n", QUIZ_HTML.read_text(encoding="utf-8"), re.S)
+    if not m:
+        return {}
+    data = json.loads(m.group(1))
+    out = {}
+    for it in data["items"]:
+        pmap = {}
+        for v in it["values"]:
+            pmap.setdefault(pretty(v), v)
+        out[it["id"]] = (set(it["values"]), pmap)
+    return out
+
+
+def normalize_answers(answers: dict) -> int:
+    """导出文件若存的是网页显示文本，还原成原文逐字值；不改选择，只改文本形态。
+
+    有些导出是按 options（显示用、已去 Markdown 标记）生成的，直接回填会核不回语料。
+    """
+    maps = display_maps()
+    fixed = 0
+    for rid, a in answers.items():
+        if a.get("must_refuse"):
+            continue
+        atoms = [str(x) for x in a.get("atoms", [])]
+        if not atoms:
+            continue
+        rawset, pmap = maps.get(rid, (set(), {}))
+        restored = []
+        for x in atoms:
+            if x in rawset or x not in pmap:
+                restored.append(x)
+            else:
+                restored.append(pmap[x])
+                fixed += 1
+        if a.get("reference") == "\n".join(atoms):
+            a["reference"] = "\n".join(restored)
+        a["atoms"] = restored
+    return fixed
 
 
 def main() -> int:
@@ -38,6 +89,9 @@ def main() -> int:
     if not isinstance(answers, dict):
         print("答案 JSON 缺少 answers 对象", file=sys.stderr)
         return 1
+    fixed = normalize_answers(answers)
+    if fixed:
+        print(f"已把 {fixed} 条显示文本还原成语料原文（选择不变）")
 
     rows = [json.loads(l) for l in DATA.read_text(encoding="utf-8").splitlines() if l.strip()]
     known = {r["id"] for r in rows}
