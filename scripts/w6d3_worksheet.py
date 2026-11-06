@@ -26,6 +26,16 @@ F_ATOMS = "判分要点"
 F_BEHAVIOR = "期望行为"
 F_CRITERIA = "拒答判据"
 
+CONFIRM_OK = {"OK", "OK.", "Y", "YES", "确认", "已核", "已确认", "照原", "原样", "✔", "✓"}
+# 「AI 复核通过；保持草案」这类是确认备注，不是新题干；写进 question 会把题库毁掉
+CONFIRM_NOTE_KEYS = (
+    "保持草案", "沿用草案", "复核通过", "照原", "原样", "不改", "沿用", "建议改写", "保持原",
+)
+
+
+def is_confirm_note(value: str) -> bool:
+    return any(k in value for k in CONFIRM_NOTE_KEYS)
+
 DOC_ORDER = [
     "evals/corpus/decisions.md",
     "evals/corpus/k8s-concepts.md",
@@ -257,13 +267,16 @@ def apply(by: str, dry_run: bool, force: bool, when: str) -> int:
 
     errors: list[str] = []
     changed: list[str] = []
+    note_count = 0
     for row in rows:
         u = updates.get(row["id"])
         if not u:
             continue
         if u["confirm"]:
             value = u["confirm"]
-            if value.upper() not in ("OK", "OK.", "Y", "YES", "确认", "已核", "已确认", "照原", "原样", "✔", "✓"):
+            if is_confirm_note(value):
+                note_count += 1
+            if value.upper() not in CONFIRM_OK and not is_confirm_note(value):
                 if row["question"] != value:
                     # 草案题干待人改成真实问法，第一次确认不需要 force；
                     # 已经有人确认过再改，才要求显式 --force。
@@ -296,6 +309,8 @@ def apply(by: str, dry_run: bool, force: bool, when: str) -> int:
 
     print(f"将回填 {len(changed)} 题：{', '.join(changed)}")
     print(f"标注人 {by} / 日期 {when} / dry_run={dry_run}")
+    if note_count:
+        print(f"其中 {note_count} 题的「题干确认」是复核备注，按保持草案处理，不会改写题干")
     if dry_run:
         print("--dry-run：未写文件。")
         return 0
