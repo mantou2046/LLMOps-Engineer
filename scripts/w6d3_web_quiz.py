@@ -95,20 +95,31 @@ def candidates_for(row: dict) -> tuple[list[str], str]:
     return pool, section
 
 
-def prefilled_from_worksheet() -> dict[str, str]:
-    """把答题纸里已逐字可核的答案带进网页初始状态，避免已做的工作白费。"""
-    if not ws.SHEET.exists():
-        return {}
-    content = ws.SHEET.read_text(encoding="utf-8")
-    found: dict[str, str] = {}
-    for block in re.split(r"(?=^#### g\d{3} )", content, flags=re.M):
-        m = re.match(r"^#### (g\d{3})\s", block)
-        if not m:
-            continue
-        ans = ws.read_field(block, ws.F_ANSWER) or ws.read_field(block, ws.F_BEHAVIOR)
-        if ans and not ws.read_field(block, ws.F_CRITERIA):
-            found[m.group(1)] = ans
-    return found
+# 预标注日志指出 g034 / g035 / g038 的章节句子被抽取规则挡住（标题行、代码块命令、
+# 表格行）。这些行本来就存在于冻结语料里，按关键词找回并追加到该题候选末尾；
+# 只追加、不改动前面已答 47 题的选项顺序，日志里的索引仍然对得上。
+EXTRA_BY_ID = {
+    "g034": ("evals/corpus/docker-data-move-to-E.md",
+             ("备选 A", "备选 B", "只压缩 vhdx", "让 kind 少占", "RECLAIMABLE", "verify_d3.sh")),
+    "g035": ("evals/corpus/docker-data-move-to-E.md",
+             ("docker info", "docker images", "kubectl get pods,svc,ingress,pvc",
+              "verify_d4.sh", "数据盘应该出现在", "19 项")),
+    "g038": ("evals/corpus/resource-ledger.md",
+             ("8 vCPU", "8.1 GiB", "Pod 上限", "1006 GiB")),
+}
+
+
+def extra_candidates(rid: str) -> list[str]:
+    rule = EXTRA_BY_ID.get(rid)
+    if not rule:
+        return []
+    doc, keys = rule
+    out: list[str] = []
+    for raw in CORPUS.get(doc, "").splitlines():
+        s = raw.strip()
+        if s and len(s) >= 6 and any(k in s for k in keys) and s not in out:
+            out.append(s)
+    return out
 
 
 def pretty(s: str) -> str:
@@ -118,10 +129,9 @@ def pretty(s: str) -> str:
 
 def build() -> int:
     rows = ws.load_rows()
-    prefilled = prefilled_from_worksheet()
     quiz: list[dict] = []
     carried: list[str] = []
-    unverified: list[str] = []
+    pending: list[str] = []
 
     for row in rows:
         item = {
@@ -137,23 +147,30 @@ def build() -> int:
             "values": [],
             "original": "",
             "preselect": [],
+            "preselect_refuse": None,
         }
+        answered = bool(row["reference"])
+        if not answered:
+            pending.append(row["id"])
         if row["must_refuse"]:
             item["options"] = REFUSE_OPTIONS
             item["values"] = REFUSE_OPTIONS
+            if answered and row["reference"] in REFUSE_OPTIONS:
+                item["preselect_refuse"] = REFUSE_OPTIONS.index(row["reference"])
+                carried.append(row["id"])
         else:
             pool, section = candidates_for(row)
+            for e in extra_candidates(row["id"]):
+                if e not in pool:
+                    pool.append(e)
             item["options"] = [pretty(s) for s in pool]
             item["values"] = pool
             item["original"] = section
-            ans = prefilled.get(row["id"], "")
-            if ans:
-                hits = [s for s in pool if norm(s) == norm(ans)]
-                if hits:
-                    item["preselect"] = hits
-                    carried.append(row["id"])
-                else:
-                    unverified.append(row["id"])
+            preselect = [a for a in row["reference_atoms"] if a in pool]
+            if preselect:
+                item["preselect"] = preselect
+            if answered:
+                carried.append(row["id"])
 
         quiz.append(item)
 
@@ -161,7 +178,8 @@ def build() -> int:
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "total": len(quiz),
         "carried": carried,
-        "unverified": unverified,
+        "unverified": [],
+        "pending": pending,
         "items": quiz,
         "refuse_correct": REFUSE_CORRECT,
     }
@@ -169,8 +187,7 @@ def build() -> int:
     html = TEMPLATE.replace("__QUIZ_DATA__", embedded).replace("__GEN_TIME__", payload["generated_at"])
     OUT.write_text(html, encoding="utf-8")
     print(f"已生成 {OUT}（{len(quiz)} 题，单文件 / 零外部依赖）")
-    print(f"从答题纸带入且逐字可核：{carried or '无'}")
-    print(f"答题纸里有填写但核不回原文、需重答：{unverified or '无'}")
+    print(f"已从数据集带入 {len(carried)} 题答案 | 待补 {len(pending)} 题：{', '.join(pending) or '无'}")
     return 0
 
 
@@ -316,7 +333,8 @@ function initial(id) {
   const s = state[id];
   if (s) return s;
   const it = DATA.items.find(x => x.id === id);
-  return { question: it.question, picks: it.preselect || [], refuse: null };
+  return { question: it.question, picks: it.preselect || [],
+           refuse: it.preselect_refuse === undefined ? null : it.preselect_refuse };
 }
 function answered(s, it) {
   if (it.must_refuse) return s.refuse !== null && s.refuse !== undefined;
@@ -367,8 +385,8 @@ function render() {
   ).join("");
   document.getElementById("meta").textContent =
     "生成时间：" + DATA.generated_at +
-    (DATA.carried.length ? " ｜ 已从答题纸带入：" + DATA.carried.join("、") : "") +
-    (DATA.unverified.length ? " ｜ 需重答（原答案核不回原文）：" + DATA.unverified.join("、") : "");
+    (DATA.carried.length ? " ｜ 已从数据集带入 " + DATA.carried.length + " 题答案" : "") +
+    (DATA.pending && DATA.pending.length ? " ｜ 待补：" + DATA.pending.join("、") : "");
   refresh();
 }
 function refresh() {
