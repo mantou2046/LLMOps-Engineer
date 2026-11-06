@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "golden_set.schema.json",
+  "title": "W6 D3 golden set 单条题目格式",
+  "description": "50 题评估基准集的行格式正本。核心四列 question / reference / must_refuse / source_chunk 必须齐；其余字段用于标注流程与验收。字段释义与判分口径见 evals/ANNOTATION.md。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "question",
+    "question_origin",
+    "question_confirmed_by",
+    "type",
+    "reference",
+    "reference_atoms",
+    "must_refuse",
+    "source_doc",
+    "source_hint",
+    "source_chunk",
+    "refusal_criteria",
+    "labeled_by",
+    "labeled_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^g[0-9]{3}$",
+      "description": "题号 g001–g050，全表唯一，复标与报告都按它对齐"
+    },
+    "question": {
+      "type": "string",
+      "minLength": 8,
+      "description": "题干。骨架里是从冻结语料拟的候选问法，须人工确认或改写成真实问法"
+    },
+    "question_origin": {
+      "enum": ["draft_from_corpus", "human_real_query"],
+      "description": "draft_from_corpus = 依语料拟的草案；human_real_query = 来自真实提问记录"
+    },
+    "question_confirmed_by": {
+      "type": "string",
+      "description": "人工确认题干的人（缩写或姓名）；空 = 尚未确认，不算已出题"
+    },
+    "type": {
+      "enum": ["single_hop", "multi_hop", "instruction", "boundary", "refuse"],
+      "description": "single_hop 单段可答 / multi_hop 跨段或跨篇 / instruction 要求格式或步骤 / boundary 语料只覆盖一部分 / refuse 应拒答"
+    },
+    "reference": {
+      "type": "string",
+      "description": "标准答案。禁止由模型生成；可答题须能逐字核回冻结语料，拒答题填期望行为"
+    },
+    "reference_atoms": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "把 reference 拆成可判分的要点，用于「部分正确」计分；每条须能在语料原文中找到"
+    },
+    "must_refuse": {
+      "type": "boolean",
+      "description": "是否为「应该拒答」的题；true 时 refusal_criteria 必填、type 必须为 refuse"
+    },
+    "source_doc": {
+      "type": ["string", "null"],
+      "description": "冻结语料相对路径 evals/corpus/<name>.md；拒答题填 null"
+    },
+    "source_hint": {
+      "type": "string",
+      "description": "出处章节标题（须能在 source_doc 中逐字找到），供人工快速定位原文"
+    },
+    "source_chunk": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9._-]+\\.md#[0-9]+$",
+      "description": "按 W6 D1 递归 B（400/50）切法回填的块号，形如 k8s-concepts.md#12；未回填为 null。D4 的 IDBasedContextRecall 用它"
+    },
+    "refusal_criteria": {
+      "type": "string",
+      "description": "拒答题的判定依据：为什么语料答不了、正确行为是什么；可答题留空"
+    },
+    "labeled_by": {
+      "type": "string",
+      "description": "写标准答案的人；空 = 尚未标注"
+    },
+    "labeled_at": {
+      "type": "string",
+      "description": "标注日期 YYYY-MM-DD；空 = 尚未标注"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "must_refuse": { "const": true } } },
+      "then": {
+        "properties": {
+          "type": { "const": "refuse" },
+          "source_doc": { "type": "null" },
+          "refusal_criteria": { "minLength": 10 }
+        }
+      }
+    }
+  ]
+}

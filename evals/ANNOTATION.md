@@ -1,0 +1,149 @@
+# golden set 标注规范：什么算答对
+
+> 11/11 那天的「记」就是这份文件。任务卡的验收原话是「另一个人照标注规范能标出一致结果」，所以规范要写到两个人各自标、结果能对上的程度。
+> 数据文件：`evals/golden_set.jsonl`（50 题）｜字段正本：`evals/golden_set.schema.json`｜格式示范：`evals/golden_set.sample.jsonl`
+> 对应任务卡：`docs/decisions.md` 之外的 W6 11/11；上游语料是 `evals/corpus/` 冻结的六篇（commit `6ba1baf`，104,798 字符）。
+
+> [!warning] 当前状态：地基已成，标准答案一道没写
+> 50 个题位是 2026-11-06 备好的**草案**，`reference` / `reference_atoms` 全空、`labeled_by` 全空。
+> 下面第二节那条「标准答案只能由人写」是硬约束，AI 不代写。验收要的「另一个人复标一致」也没做，别把这页当成 11/11 已完成。
+
+## 速览
+
+| 阶段 | 谁做 | 动哪个字段 | 做完的判据 |
+| --- | --- | --- | --- |
+| 1 确认题干 | 人 | `question` / `question_confirmed_by` / `question_origin` | 50 题都有人签过，草案改成真实问法 |
+| 2 写标准答案 | 人 | `reference` / `labeled_by` / `labeled_at` | 答案能逐字核回冻结语料 |
+| 3 拆判分要点 | 人 | `reference_atoms` | 每题 2–5 条，每条在原文找得到 |
+| 4 跑校验 | 脚本 | — | 结构、出处、答案可核性全过，退出码 0 |
+| 5 两人复标 | 两个人 | `evals/out/w6d3/relabel_*.jsonl` | 各自独立给每题一个 label |
+| 6 算一致性 | 脚本 | — | Cohen's kappa（科恩 κ 一致性系数）≥ 0.8 |
+
+RAG（Retrieval-Augmented Generation，检索增强生成）系统最危险的失败不是答错，是不知道的时候照样答。所以 50 题里留了 12 道「应该拒答」的题，占 24%。
+
+---
+
+## 一、四个核心字段
+
+数据用 JSONL（JSON Lines，每行一个独立 JSON 对象）存，一个题一行。
+
+| 字段 | 填什么 | 常见错填 |
+| --- | --- | --- |
+| `question` | 用户会真的问出口的那句话 | 把答案关键词抄进题干，等于送分 |
+| `reference` | 标准答案，见第二节 | 让模型生成一遍再抄过来 |
+| `must_refuse` | 该题是否应该拒答 | 只放「答不上」的题，漏掉「不该答」的题 |
+| `source_chunk` | 答案所在的块，形如 `k8s-concepts.md#12` | 填文件名不填块号，D4 的非 LLM 指标用不上 |
+
+辅助字段：`type` 分五种（单跳 / 多跳 / 指令 / 边界 / 拒答），`source_doc` 与 `source_hint` 用来快速翻原文，`question_confirmed_by` 与 `labeled_by` 记谁签的字，`refusal_criteria` 写拒答题的判定理由，`reference_atoms` 是拆出来的判分要点。
+
+`source_chunk` 的块号按 W6 D1 选定的递归 B（400 字 / 50 字 overlap）切法算，那套切法切冻结语料正好 330 块。`evals/corpus/manifest.json` 记着六篇的 sha256，切之前先核对，别拿长胖了的 `docs/decisions.md` 去切。
+
+---
+
+## 二、标准答案只能由人写
+
+任务卡 11/11 的卡点原话：**别用模型生成标准答案 —— 那等于用答案出题，评估会系统性假高。** 阅读清单 D3 也写了，合成测试集只能扩量，不能定标准。落到这份数据上，是三条可检查的规矩：
+
+1. **可答题的 `reference` 必须是冻结语料原文的逐字摘引**，或由原文句子拼成。校验脚本会把两边空白归一化后做子串比对，比对不上就报错。想归纳也行，但 `reference_atoms` 里每一条都得能在原文中找到。
+2. **拒答题的 `reference` 填期望行为**（例如「说明文档未覆盖并拒答」），不是事实答案；判定依据写在 `refusal_criteria`。这类题不走原文可核性检查。
+3. **`labeled_by` 只能填真人**。示范文件里的 `EXAMPLE_ONLY` 是格式样例，不计入任何进度统计。
+
+这条约束有个副产品：答案可核，D4 的 context recall 才知道自己量的是「该召回的有没有召回」，而不是「模型有没有背下自己编的答案」。
+
+> [!note]- 为什么合成题仍有用，但不能混进来
+> RAGAS 的 testset generation 能从语料造几百道问答对，适合做压力测试。若以后用它扩量，产出放另一个文件，报告里把「人工 50 题」和「合成 N 题」两组数字分开写，别合并成一个准确率。
+
+---
+
+## 三、判分口径：什么算答对
+
+先把 `reference` 拆成 `reference_atoms`，每题 2–5 条独立要点。判分不看文采，只看要点命中数与有没有编造。复标时每人给一个 label，取值只有五种。
+
+| label | 判据 | 例子 |
+| --- | --- | --- |
+| `correct` | 命中全部 atoms，且没有冲突断言、没有语料外的事实或数字 | 问 volumeBindingMode，答出 `WaitForFirstConsumer` 并说清推迟到 Pod 创建时 |
+| `partial` | 命中 ≥1 条 atom 但没全中，且没有冲突断言 | 只答对模式名，没提调度器拓扑约束 |
+| `incorrect` | 一条都没命中，或出现与 reference 直接冲突的断言，或编造了语料外的数值／步骤／API | 答成 `Immediate`，或顺手编一个不存在的参数 |
+| `refused_ok` | 明确说明文档未覆盖／无法从上下文判断，且没有给出具体答案 | 「这六篇文档里没有实时行情数据」 |
+| `refused_fail` | 给了具体数值或步骤，或者含糊地编一段 | 报一个收盘点数，或「大概是三千多点」 |
+
+「明确说明」的可操作判据：回答里出现「文档里没有」「未覆盖」「上下文里没有」「无法判断」这类表述，**并且**不含具体答项。只写「我不知道」但后面跟了个数字，仍算 `refused_fail`。
+
+冲突断言优先于命中数：哪怕命中了 3/4 条 atoms，只要有一句和 reference 直接矛盾，就落到 `incorrect`，并在 `note` 里记下那句话。这一条是两个人最容易标岔的地方，复标时重点看。
+
+> 自测：模型答「用 `WaitForFirstConsumer`，另外还要把 `probes` 设成 3」。前半句对、后半句在这段语料里没有，算哪一档？
+> 算 `partial`，不是 `incorrect` —— 它没和 reference 冲突，只是多了一句语料外内容。若那句话是个具体数字或步骤（会影响 faithfulness），按 `incorrect` 记并在 note 里写明。拿不准时两人各自记理由，第 6 步一起对。
+
+---
+
+## 四、两种特殊题
+
+**边界题（`type: boundary`）**：语料只覆盖了一部分，或者只写了「旧结论失效、必须实测」而没给新结论。正确行为是**说清楚文档写到哪、缺哪一块**，不是硬凑一个完整答案。只答一半却装作答全，记 `incorrect`。50 题里留了 3 道（g027 / g031 / g038）。
+
+**拒答题（`must_refuse: true`）**：12 道，分别覆盖实时数据、凭据、未来规划、越权操作、语料外的技术知识、财务域错配、私有数据、不存在的章节、缺依据的成本估算、主观评分、无记录的具体事故。它们不给 faithfulness 一个好看的分数，给的是系统的下限检验。这类题的 `source_doc` 为 `null`，`refusal_criteria` 必填。
+
+---
+
+## 五、标注流程（按执行顺序）
+
+没有需要常驻的进程，按下面顺序走就行。命令块里的相对路径都从仓库根算起，所以第一行固定是 `cd`。
+
+**步骤 1 · 确认题干**。逐题看 `question`：能当成真实提问就填 `question_confirmed_by`，把 `question_origin` 留 `draft_from_corpus`；若换成自己或同事真问过的话，把 `question_origin` 改成 `human_real_query` 并重写 `question`。这一步不能跳 —— 50 题全是我按语料拟的草案，直接拿来定标准就变成合成题定标准了。
+
+**步骤 2 · 写标准答案**。翻 `source_hint` 指的那一节，从原文摘 `reference`，填 `labeled_by` 和 `labeled_at`。拒答题写期望行为与 `refusal_criteria`。
+
+**步骤 3 · 拆 `reference_atoms`**。每条要点都要能在原文里逐字找到，2–5 条为宜。拆得太细，两个人会标不一致；拆得太粗，部分正确这一档就没分辨力。
+
+**步骤 4 · 跑校验**。结构、分布、出处可核性一次查完，同时打印真实进度：
+
+```bash
+cd /e/Projects/LLMOps-Engineer
+./.venv-eval/Scripts/python.exe scripts/w6d3_validate_golden.py
+```
+
+要连示范文件一起验，加 `--sample`。校验不通过就别进第 5 步，先改数据。
+
+**步骤 5 · 两人独立复标**。各自生成一份空模板，各自填 `label` 与 `note`，互不商量：
+
+```bash
+cd /e/Projects/LLMOps-Engineer
+./.venv-eval/Scripts/python.exe scripts/w6d3_agreement.py --init A
+./.venv-eval/Scripts/python.exe scripts/w6d3_agreement.py --init B
+```
+
+模板落在 `evals/out/w6d3/`，该目录已被 `.gitignore` 忽略，是本机产物。
+
+**步骤 6 · 算一致性**：
+
+```bash
+cd /e/Projects/LLMOps-Engineer
+./.venv-eval/Scripts/python.exe scripts/w6d3_agreement.py --compare A B
+```
+
+---
+
+## 六、一致性验收
+
+脚本报三个数：逐题一致率、Cohen's kappa（科恩 κ 一致性系数，扣掉「两个人碰巧都标 correct」的随机一致）、以及分歧题清单。
+
+验收线定在 **kappa ≥ 0.8**，对应任务卡那句「另一个人照规范能标出一致结果」。没到线不要改数据去凑，按这个顺序处理：
+
+1. 把分歧题一条条摊开，看是不是第三节的判据有歧义（最常见的是「部分正确」和「冲突断言」两处）。
+2. 改本文件的判据措辞，两个人**重新独立标一遍**，不是协商着把标改成一样。
+3. 仍不达标，说明题目本身有歧义，回步骤 1 改 `question`。
+
+改动留痕：`evals/out/w6d3/agreement.json` 存每次结果，规范改了哪句写进 W6 决策日志。
+
+---
+
+## 七、交给 11/12 的接口
+
+- `reference` → context recall 必须有它，没有标准答案这项指标直接跑不了。
+- `source_chunk` → `IDBasedContextRecall`（基于块编号的上下文召回，不调用 LLM（Large Language Model，大语言模型）的省成本指标）与 CI（Continuous Integration，持续集成）门禁用它比块编号。⚠️ 50 题现在全是 `null`：块号要按递归 B 切法回填，回填脚本本次没写，D4 接门禁前补上。
+- `must_refuse` → 拒答题单独成组报分，别混进总体准确率。四项指标的数字要按组拆开，否则「拒答得很干脆」会把平均分抬高。
+- 50 题 × 四指标按阅读清单 D4 的成本账约 700–1000 次 judge 调用，先跑 10 题小样再全量；judge 并发压到 2–3 并带退避。
+
+> [!warning] 别把这份数据当结论
+> 地基阶段 0/50 已标注，跑不出任何质量数字。11/12 的首份评估报告要等第 6 步的 kappa 过了线才算数。
+
+#golden_set #W6D3 #标注规范
