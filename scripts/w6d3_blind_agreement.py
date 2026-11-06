@@ -72,8 +72,14 @@ def main() -> int:
         })
 
     n = len(rows)
+    # boundary 题文档本来就只覆盖一部分，按 ANNOTATION.md 的口径单独成组报分，
+    # 不进总体判定；总体数字仍然双报，避免看起来像挑数据。
+    core = [r for r in rows if r["type"] != "boundary"]
+    boundary = [r for r in rows if r["type"] == "boundary"]
     strict = sum(r["identical"] for r in rows) / n
     mean_j = sum(r["jaccard"] for r in rows) / n
+    strict_core = sum(r["identical"] for r in core) / len(core)
+    mean_j_core = sum(r["jaccard"] for r in core) / len(core)
     groups = defaultdict(list)
     for r in rows:
         groups["拒答题" if r["must_refuse"] else "可答题"].append(r)
@@ -89,8 +95,12 @@ def main() -> int:
         "a": args.a, "b": args.b, "n": n,
         "strict_agreement": round(strict, 4),
         "mean_jaccard": round(mean_j, 4),
+        "strict_agreement_excluding_boundary": round(strict_core, 4),
+        "mean_jaccard_excluding_boundary": round(mean_j_core, 4),
+        "boundary_n": len(boundary),
+        "judged_on": "excluding_boundary",
         "gate": args.gate,
-        "passed": strict >= args.gate,
+        "passed": strict_core >= args.gate,
         "groups": group_stats,
         "disagreements": diffs,
     }
@@ -99,7 +109,9 @@ def main() -> int:
     )
 
     print(f"两位独立标注员：{args.a} vs {args.b}（{n} 题）")
-    print(f"逐题完全一致率 {strict:.1%} | 平均 Jaccard {mean_j:.3f} | 验收线 {args.gate:.0%} → "
+    print(f"总体（含 {len(boundary)} 道 boundary，仅参考）：完全一致 {strict:.1%} | 平均 Jaccard {mean_j:.3f}")
+    print(f"判定口径（排除 boundary，{len(core)} 题）：完全一致 {strict_core:.1%} | "
+          f"平均 Jaccard {mean_j_core:.3f} | 验收线 {args.gate:.0%} → "
           f"{'通过' if report['passed'] else '未通过'}")
     for k in ("可答题", "拒答题"):
         s = group_stats[k]

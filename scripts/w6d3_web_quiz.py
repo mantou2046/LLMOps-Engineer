@@ -106,6 +106,23 @@ EXTRA_BY_ID = {
               "verify_d4.sh", "数据盘应该出现在", "19 项")),
     "g038": ("evals/corpus/resource-ledger.md",
              ("8 vCPU", "8.1 GiB", "Pod 上限", "1006 GiB")),
+    # 首轮盲标里两位标注员都指出「候选里没有答案」的题：代码块命令、表格行、
+    # 跨行下半句被抽取规则挡住了。按关键词从全文找回，仍是原文逐字。
+    "g021": ("evals/corpus/kubectl-cheatsheet.md",
+             ("为什么危险", "Service/Ingress 配置问题")),
+    "g022": ("evals/corpus/kubectl-cheatsheet.md",
+             ("第一原则", "① 看 STATUS", "② 拉到最底", "③ 看上一条")),
+    "g023": ("evals/corpus/kubectl-cheatsheet.md",
+             ("**liveness** 失败", "**readiness** 失败", "READY` 变 `0/1", "RESTARTS` 涨")),
+    "g024": ("evals/corpus/kubectl-cheatsheet.md",
+             ("直接读 cgroup", "memory.current", "memory.max", "先量基线")),
+    "g025": ("evals/corpus/kubectl-cheatsheet.md",
+             ("port-forward 不依赖", "NodePort 的区别", "kubectl port-forward pod/")),
+    "g028": ("evals/corpus/env-setup.md",
+             ("git 默认读", "注册表里的 `9527` 是活的", "http.proxy=http://127.0.0.1:9527",
+              "显式把代理指到")),
+    "g029": ("evals/corpus/env-setup.md",
+             ("HF_ENDPOINT =", "已写入用户级环境变量", "setx HF_ENDPOINT")),
 }
 
 
