@@ -33,6 +33,17 @@ def conclusion_rank(s: str) -> int:
     """结论性句子排前面，纯规则排序，不做任何语义判断。"""
     return -sum(1 for w in HINT_WORDS if w in s)
 
+
+ENUM_KEYS = ("列出", "哪几条", "分别是什么", "哪几个", "有哪些", "全部条目",
+             "按原文顺序", "按步骤")
+
+
+def is_enumerative(row: dict) -> bool:
+    """列举题不受 3 句上限；用数据字段固化，避免两位标注员各自判断产生分歧。"""
+    if row["must_refuse"] or row["type"] == "boundary":
+        return False
+    return row["type"] == "instruction" or any(k in row["question"] for k in ENUM_KEYS)
+
 REFUSE_OPTIONS = [
     "文档里没有相关信息，应说明未覆盖并拒答",
     "给出具体数值或步骤",
@@ -165,6 +176,7 @@ def build() -> int:
             "original": "",
             "preselect": [],
             "preselect_refuse": None,
+            "enumerative": is_enumerative(row),
         }
         answered = bool(row["reference"])
         if not answered:
