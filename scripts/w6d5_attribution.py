@@ -96,13 +96,16 @@ def log(msg: str) -> None:
 
 
 def load_env() -> dict[str, str]:
+    import os  # 环境变量优先：换独立裁判时注入 judge 通道，不必改 .env 或落盘凭据
+
     env: dict[str, str] = {}
     for line in (ROOT / ".env").read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        env[key.strip()] = value.strip().strip('"').strip("'")
+        name = key.strip()
+        env[name] = os.environ.get(name, value.strip().strip('"').strip("'"))
     return env
 
 
