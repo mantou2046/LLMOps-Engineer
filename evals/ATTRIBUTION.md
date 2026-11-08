@@ -137,6 +137,16 @@ answer relevancy 自己也不稳定：`g002` 从 0.7644 掉到 0，`g004` 从 0 
 - **context recall 少一题配对**：`g006` 的 A 组评分超时记 NaN，配对样本 9 题。全部有分题的均值另列在 `comparison.json` 的 `averages` 里，口径不等，不作为结论依据。
 - 单批 `evaluate()` 要 3–6 分钟，三项指标分三次跑完约 26 分钟。前台命令会被 300 秒上限掐断，用后台任务 + 断点续跑（脚本逐题落盘，重跑只补缺的指标）。
 
+### 换裁判重跑也没成（2026-11-08 下午补记）
+
+用户给 FreeLLMAPI 的 `electronhub` 平台配好 key 后，又试了两轮，都没有改掉本报告的结论：
+
+- `tencent-hy4-preview` / `hy4-preview` 短 prompt 5.5 秒能回，但吐的是思考过程；长 prompt 稳定卡网关 90 秒超时（`The operation was aborted (electronhub, chat, 90s)`），两次复现，还触发 heuristic 冷却。同平台 `hunyuan-a13b-instruct` 2.4 秒返回，一样吐思考。这三个都不适合 ragas 的结构化输出。
+- 同平台 `gpt-4.1-mini` 的 `--preflight` 拿到 3/3（2.0–3.7 秒、干净 JSON），一进 ragas 批量就触发 `more than 120 requests per minute` 和路由级冷却循环。并发 3、批大小 10 时 80 个分数只出 7 个；压到并发 1、批大小 2、批间等 25 秒，10 分钟里 18 个待补也只出 5 个。不是并发问题，是这个免费 key 的配额撑不住 ragas 的调用密度。按事先定的止损停手，残批另存 `scores.gpt41mini-partial.jsonl` 和 `comparison.gpt41mini-partial.json`，没有混进结果。
+- 给 `--preflight` 记一条局限：它只测 3 次单发，能拦住「完全不可用」和「格式不对」，拦不住「单发可用但密集批量被限流」。下次换裁判要补一个连发 10–15 次的 burst 体检。
+
+基线数字、噪声标尺和「改动不采纳」的判定维持原样，旧分数与 `comparison.json` 已恢复成 `deepseek-v4-flash` 那套。独立固定裁判重跑、context precision 与 50 题全量继续挂在欠账里。
+
 ## 七、复跑
 
 ```bash
