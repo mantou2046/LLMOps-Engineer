@@ -126,3 +126,30 @@ cd /e/Projects/LLMOps-Engineer
 三条读数：① 拒答题的 AR 只有 0.0524、CP 满分 1.0，把 12 道拒答混进全量均值会把 AR 从可答题的 0.6108 拉到 0.4768，正是上面 §分组读数预判的分布差异，现在有全量证据，报分要分开。② `multi_hop` 的 CR 0.5778、`instruction` 的 CP 0.4417 是两组低分，3 题样本小只作线索，别当统计结论。③ `boundary` 的 CR 0.8333 不算检索故障，题目设计本来就只覆盖一部分文档。
 
 **仍未收口**：D3 真人双标（`evals/ACCEPTANCE.md`）未过，依赖 `reference` 的 CR / CP 绝对值仍要打折扣；裁判与生成不是同一模型，避开了自评偏差，但裁判口径仍可能漂；12 道拒答题的 `reference` 写的是期望行为而非事实答案，其 CR 0.6250 只能当行为分，不当召回分。按 DEC-042 复核条件重评 rerank 仍未做。
+
+---
+
+## 换裁判门禁（`scripts/w6d4_judge_preflight.py`）
+
+**为什么要单独一道**：D5 的 `--preflight` 只做 3 次单发，能拦「模型不通 / 格式不对」，拦不住「单发可用但密集批量被限流」。11-08 实测 `gpt-4.1-mini` 长 prompt 单次出干净 JSON、burst 12/12 全 `403 model_location_not_supported`；`deepseek-v4.1-flash` 免费档 burst `429 rate_limit_exceeded`。这两类失败只在连发里暴露，而 ragas 一跑就是几百次 judge 调用。
+
+**判据**（退出码 0 才允许改 `RAGAS_JUDGE_MODEL`）：
+
+1. 1900 字中文长上下文 +「只输出 JSON」重复 3 次，至少 2 次能 `json.loads`、不带思考痕迹、单次 ≤ 30 秒（`--long-runs` 调小时阈值自动降为 `min(2, long_runs)`，避免参数不自洽误判）；
+2. 短 prompt 连发 12 次全部 200，任何 403 / 429 / 5xx 都判不通过；
+3. 每次记下 `provider`、`usage.cost`、`x-experiential-ignored-parameters`，报告写 `evals/out/judge_preflight/`（被 gitignore）。
+
+**命令**（凭据走环境变量，脚本不读 `.env`、不落盘）：
+
+```bash
+export RAGAS_JUDGE_BASE_URL=https://api.experientiallabs.ai/v1
+export LLM_PRIMARY_API_KEY=<本人填入>
+./.venv-eval/Scripts/python.exe scripts/w6d4_judge_preflight.py \
+    --model glm-5.3-flash --burst 12 --long-runs 3
+```
+
+退出码：0 通过 / 2 体检不通过 / 1 配置缺失。判定逻辑是纯函数，有 11 条单测（`tests/test_w6d4_judge_preflight.py`）：`pytest` 40 passed、`ruff` 全绿。
+
+**11-08 选型时的实测对照**：`glm-5.3-flash` 长 prompt 干净 JSON、18/18 连发全 200 → 通过并选为固定裁判；`gpt-4.1-mini` / `gpt-4.1-nano` / `gemini-3.7-flash` / `claude-haiku-4.5` / `gpt-6-luna` 403 地区限制；`deepseek-v4.1-flash` 429 限流；`clef-flash` / `jev-latest` 400 不支持。
+
+⚠️ **不挂 CI**：脚本要真实 judge key，CI 拿不到本地凭据。按 DEC-046 口径，CI 只跑零依赖非 LLM 门禁，全量 LLM 评估留本地周跑；这道是本地换裁判前的准入，两者不互相替。
