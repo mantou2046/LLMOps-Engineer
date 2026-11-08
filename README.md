@@ -435,7 +435,7 @@ python scripts/check_sensitive.py --all                              # 手动全
 | W7 | 11/16 – 11/22 | 护栏、成本、微调与 Agent | ⬜ 未开始 | — |
 | W8 | 11/23 – 11/30 | 作品集打包与求职启动 | ⬜ 未开始 | — |
 
-**当前在做**：W6（11/9–11/15）RAG 与评估，11/5 提前开工。**11/9、11/10 两天全天完结**：递归 B（400/50）写成正式基线；混合检索生产复验 + rerank 延迟测量，结论默认不开。**11/11 / 11/12 提前跑过**：50 题 golden set 标完但复标验收未过（`evals/ACCEPTANCE.md`）；RAGAS 已于 11-08 用固定裁判 `glm-5.3-flash` 跑完 50 题全量 + 分组报分（四项 50/50 全齐、NaN 0，见 `evals/RAGAS_BASELINE.md` §全量复跑）。**11/13 已实跑**：单变量 A/B 归因证伪了「改 prompt 能提 relevancy」，详见 `evals/ATTRIBUTION.md`。**11/14 已实跑**：`source_chunk` 回填 + 非 LLM eval 门禁进 CI，详见 `evals/CI_EVAL_GATE.md`。**接着做** 11/15 周复盘与改动前后对比数字；D3 真人双标、按 DEC-042 复核条件重评 rerank 仍列在欠账里（D4 全量与分组报分、独立固定裁判重跑已于 11-08 收口）。
+**当前在做**：W6（11/9–11/15）RAG 与评估，11/5 提前开工。**11/9、11/10 两天全天完结**：递归 B（400/50）写成正式基线；混合检索生产复验 + rerank 延迟测量，结论默认不开。**11/11 / 11/12 提前跑过**：50 题 golden set 标完但复标验收未过（`evals/ACCEPTANCE.md`）；RAGAS 已于 11-08 用固定裁判 `glm-5.3-flash` 跑完 50 题全量 + 分组报分（四项 50/50 全齐、NaN 0，见 `evals/RAGAS_BASELINE.md` §全量复跑）。**11/13 已实跑**：单变量 A/B 归因证伪了「改 prompt 能提 relevancy」；11-08 晚间再用独立裁判 `glm-5.3-flash` 重评同一批 A/B 配对做交叉验证，四项 10/10 全齐（含此前全缺的 context precision），**「改动不采纳」维持原判**，详见 `evals/ATTRIBUTION.md` §独立裁判交叉验证。**11/14 已实跑**：`source_chunk` 回填 + 非 LLM eval 门禁进 CI，详见 `evals/CI_EVAL_GATE.md`。**接着做** 11/15 周复盘与改动前后对比数字；D3 真人双标、按 DEC-042 复核条件重评 rerank、12 道拒答与 3 道 `boundary` 分组报分仍列在欠账里（D4 全量与分组报分、D5 独立裁判交叉验证、context precision 已于 11-08 收口）。
 **W5 已收口**（2026-11-04，提前 4 天）：D1–D6 全绿，监控三件套 + 测试/CI + Terraform 本地 kind IaC，DEC-034~038。
 **W4 已收口**（2026-10-28）：D1–D7 全部完成，周复盘三问与架构图 v3（十二层）已定稿。
 决策日志已累计 **DEC-001 ~ DEC-046**，见 [`docs/decisions.md`](docs/decisions.md)。

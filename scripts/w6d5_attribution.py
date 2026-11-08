@@ -499,6 +499,12 @@ def preflight(env: dict[str, str], judge: str) -> int:
     11-08 的教训：短 prompt 冒烟 4/4 通过，一上 ragas 密集调用就 429，
     或者模型吐思考过程 / 只回三个反引号，白白烧掉一轮 20 题。
     体检不写任何结果文件，通过才开跑。
+
+    ⚠️ 2026-11-08 晚间废弃：这个体检对 `glm-5.3-flash` 会**假阴性**——
+    本函数把 max_tokens 写死 180，且 prompt 只说「不要解释」，模型进入 thinking 后
+    reasoning_tokens 吃满额度、content 为空。换裁判请改用
+    `scripts/w6d4_judge_preflight.py`（长 prompt 措辞 + 12 连发 burst，退出码 0 才放行）；
+    ragas 的 build_evaluator 不设 max_tokens，不受此处限制。
     """
     from openai import OpenAI
 
