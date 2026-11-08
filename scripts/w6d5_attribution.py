@@ -482,6 +482,63 @@ def build_comparison(groups, scores, cosine, shape, args) -> dict:
     return summary
 
 
+def _strip_code_fence(text: str) -> str:
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[-1] if "\n" in t else t[3:]
+        t = t.rsplit("```", 1)[0]
+    return t.strip()
+
+
+def preflight(env: dict[str, str], judge: str) -> int:
+    """换裁判前先体检：真实长 prompt 连发 3 次，必须能解析成 JSON。
+
+    11-08 的教训：短 prompt 冒烟 4/4 通过，一上 ragas 密集调用就 429，
+    或者模型吐思考过程 / 只回三个反引号，白白烧掉一轮 20 题。
+    体检不写任何结果文件，通过才开跑。
+    """
+    from openai import OpenAI
+
+    rows = load_a(1)
+    prompt = (
+        "资料：\n"
+        + "\n\n".join(rows[0]["retrieved_contexts"])
+        + '\n\n只输出 JSON，不要解释：{"statements":["..."]}'
+    )
+    client = OpenAI(
+        base_url=env["RAGAS_JUDGE_BASE_URL"],
+        api_key=env["LLM_PRIMARY_API_KEY"],
+        timeout=120,
+        max_retries=0,
+    )
+    log(f"[preflight] 裁判 {judge} | 真实长 prompt {len(prompt)} 字 | 连发 3 次")
+    good = 0
+    for i in range(3):
+        t0 = time.time()
+        try:
+            resp = client.chat.completions.create(
+                model=judge,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=180,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+            parsed = json.loads(_strip_code_fence(text))
+            ok = isinstance(parsed, dict) and "statements" in parsed
+            log(f"  [{i + 1}/3] {time.time() - t0:.1f}s | JSON {'OK' if ok else '缺字段'} "
+                f"| {text[:60]!r}")
+            good += bool(ok)
+        except Exception as exc:
+            log(f"  [{i + 1}/3] {time.time() - t0:.1f}s | FAIL "
+                f"{type(exc).__name__}: {str(exc)[:120]}")
+    # 偶发一次超时不算配置问题（ragas 内部还有 RunConfig 重试）；
+    # 但 503 无 key、JSON 解析不了、或连着两次失败，都必须拦下。
+    passed = good >= 2
+    hint = "（有偶发超时，密集调用会更差，建议 --workers 1 并加大 --batch-wait）" if good == 2 else ""
+    log(f"[preflight] {good}/3 通过 → {'可以重跑' if passed else '别开跑，先修裁判'} {hint}")
+    return 0 if passed else 2
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=10)
@@ -495,7 +552,12 @@ def main() -> int:
     ap.add_argument("--report-only", action="store_true")
     ap.add_argument("--skip-score", action="store_true", help="只生成 B 组回答，不评分（长跑拆阶段用）")
     ap.add_argument("--metrics", default="", help="只跑指定指标，逗号分隔；留空 = 四项全跑")
+    ap.add_argument("--preflight", action="store_true",
+                    help="只体检裁判：真实长 prompt 连发 3 次 + JSON 解析，不写结果")
     args = ap.parse_args()
+
+    if args.preflight:
+        return preflight(load_env(), args.judge)
 
     OUT.mkdir(parents=True, exist_ok=True)
     env = load_env()

@@ -144,7 +144,16 @@ cd /e/Projects/LLMOps-Engineer
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:31415/health
 ```
 
-网关必须排第一，返回 200 再往下走。生成 B 组（约 3 分钟，断点续跑）：
+网关必须排第一，返回 200 再往下走。换裁判前先体检，别再用短 prompt 冒烟骗自己：
+
+```bash
+cd /e/Projects/LLMOps-Engineer
+./.venv-eval/Scripts/python.exe scripts/w6d5_attribution.py --judge <裁判别名> --preflight
+```
+
+它拿 1949 字真实上下文连发 3 次，要求能解析出 JSON，≥2/3 才放行；退出码 2 就是别开跑。11-08 那轮 `qwen3.8-27b` 短 prompt 4/4 通过、一上密集调用全 429，`auto` 和几个 flash 模型长 prompt 只吐思考过程，都是漏了这一步才白烧一轮 20 题。偶发一次超时不拦（ragas 内部还有 RunConfig 重试），但会提示降并发。
+
+生成 B 组（约 3 分钟，断点续跑）：
 
 ```bash
 cd /e/Projects/LLMOps-Engineer
