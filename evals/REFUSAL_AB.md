@@ -18,7 +18,7 @@
 - **通道分离**：生成端读 `.env` 原始配置，不受进程环境覆盖；裁判通道由启动器注入 `RAGAS_JUDGE_BASE_URL` / `JUDGE_API_KEY`，凭据只在进程内存，不落盘、不进日志。这样避免把「换裁判」误变成「换生成通道」。
 - **控制变量校验 15/15**：问题、5 个上下文、`reference` 逐字一致；B 组模型与 `prompt=B` 标记统一；A 组无 `[生成失败]`。
 - 产物隔离在 `evals/out/w6d5_refusal/`（gitignore），**没有触碰**既有 `w6d5` 的 `scores.jsonl` / `comparison.json`。
-- 脚本 `scripts/w6d5_refusal_ab.py`，一次性启动器在库内 `.workbuddy-ai/tmp/run_refusal_ab.py`（只注入进程环境）。
+- 脚本 `scripts/w6d5_refusal_ab.py`；启动器只负责把 `RAGAS_JUDGE_BASE_URL` / `JUDGE_API_KEY` 注入进程环境（本机专用、不入仓，凭据值不落盘）。
 
 ## 行为分（主判据）
 
@@ -69,11 +69,13 @@
 ## 复现
 
 ```bash
-# 库内一次性启动器（注入裁判通道，凭据不落盘）
-python .workbuddy-ai/tmp/run_refusal_ab.py --batch-size 4 --workers 2 \
+# 裁判通道由调用方注入（凭据只在进程环境里，不写文件、不入仓）
+export RAGAS_JUDGE_BASE_URL=https://api.experientiallabs.ai/v1
+export JUDGE_API_KEY=<有效 key>
+python scripts/w6d5_refusal_ab.py --batch-size 4 --workers 2 \
     --batch-wait 5 --judge glm-5.3-flash
 # 只重建汇总、不联网：
 python scripts/w6d5_refusal_ab.py --report-only
 ```
 
-首次建议 `--limit 2` 试水。分数逐题落盘、断点续跑；`scripts/w6d5_refusal_ab.py --report-only` 可随时重建 `summary.json`。
+生成端刻意**不覆盖** `LLM_PRIMARY_*`：脚本直接读 `.env`，保持与 A 组同一本机网关通道；这也是这次能只变 prompt 一个变量的前提。首次建议 `--limit 2` 试水。分数逐题落盘、断点续跑；`--report-only` 可随时重建 `summary.json`。产物 `evals/out/w6d5_refusal/` 按仓库惯例被 gitignore，数字以本报告为准。
