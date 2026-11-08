@@ -249,4 +249,4 @@ cd /e/Projects/LLMOps-Engineer
 
 复算方式（纯离线、不调 LLM）：读 `evals/out/w6d5/comparison.json` 与 `comparison.baseline-20261108.json` 的 `per_question`，按 `type` 分组求各指标 `*_A` / `*_B` / `*_delta` 均值。
 
-**仍未收口**：D3 真人双标、11/15 改动前后对比数字、**D5 的 A/B 配对样本尚未覆盖 12 道应拒答与 3 道 `boundary`**（D4 全量已给这 15 题分组报分，缺的是配对口径；现有 10 题按题型切片见上一节）。裁判与生成不同模型避开了自评偏差，但新裁判自身口径仍可能与旧版不同，跨裁判的绝对值不可直接比较。按 DEC-042 复核条件重评 rerank 已于 11-08 收口，见 `evals/RERANK_RECHECK.md`。
+**仍未收口**：D3 真人双标、11/15 改动前后对比数字。裁判与生成不同模型避开了自评偏差，但新裁判自身口径仍可能与旧版不同，跨裁判的绝对值不可直接比较。D5 的 A/B 配对样本已扩展到 12 道应拒答 + 3 道 `boundary`（11-08 收口，见 `evals/REFUSAL_AB.md`：行为分零翻转、判定不变，但 `g002` 那次误拒答未复现，周复盘别写成系统性倾向）；按 DEC-042 复核条件重评 rerank 亦已于 11-08 收口，见 `evals/RERANK_RECHECK.md`。
