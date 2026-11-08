@@ -53,7 +53,21 @@ jobs:
         run: pytest
       # pyproject.toml 的 testpaths=["tests"] 会把范围锁死在 tests/
 
-  # ---------- 4) build（W5 D5 加）：验证镜像能构建 ----------
+  # ---------- 4) eval 门禁（W6 D6 加）：非 LLM，抽样子集 ----------
+  eval-gate:
+    name: eval 门禁（非 LLM）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # 零第三方依赖：切块、BM25、块号判命中全用标准库。
+      # --self-test 同时验证「正常放行」和「改坏 prompt 被拦下」两个方向。
+      - name: 数据完整性 + 检索回归 + 反例
+        run: python scripts/w6d6_eval_gate.py --self-test
+
+  # ---------- 5) build（W5 D5 加）：验证镜像能构建 ----------
   build:
     name: build
     runs-on: ubuntu-latest

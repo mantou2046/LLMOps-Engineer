@@ -1,0 +1,10 @@
+{
+  "purpose": "W6 D6 非 LLM eval 门禁配置；CI 跑抽样子集，全量留到每周本地跑",
+  "subset_size": 20,
+  "top_k": 5,
+  "threshold": 0.65,
+  "threshold_basis": "2026-11-08 实测：20 题抽样子集基线 0.75、全量 38 题 0.8421、改坏 query 0.0；阈值 = 抽样子集基线减 0.10 安全余量。低于它直接 fail",
+  "query_template": "evals/gate/query_template.txt",
+  "metric": "IDBasedContextRecall@5（不调 LLM，按块编号判命中）",
+  "full_eval": "python scripts/w6d6_eval_gate.py --subset 50"
+}

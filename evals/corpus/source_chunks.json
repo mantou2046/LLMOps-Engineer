@@ -1,0 +1,497 @@
+{
+  "purpose": "source_chunk 的完整命中块清单；IDBasedContextRecall 与 CI 门禁用",
+  "split": "recursive_B(400/50)",
+  "total_chunks": 330,
+  "generated_at": "2026-11-08",
+  "items": [
+    {
+      "id": "g001",
+      "source_chunk": "decisions.md#13",
+      "chunks": [
+        13
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 2
+    },
+    {
+      "id": "g002",
+      "source_chunk": "decisions.md#13",
+      "chunks": [
+        13,
+        14
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 2
+    },
+    {
+      "id": "g003",
+      "source_chunk": "decisions.md#31",
+      "chunks": [
+        31
+      ],
+      "method": "verbatim",
+      "covered_atoms": 5,
+      "total_atoms": 5
+    },
+    {
+      "id": "g004",
+      "source_chunk": "decisions.md#37",
+      "chunks": [
+        37
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g005",
+      "source_chunk": "decisions.md#53",
+      "chunks": [
+        53,
+        54,
+        55
+      ],
+      "method": "verbatim",
+      "covered_atoms": 3,
+      "total_atoms": 5
+    },
+    {
+      "id": "g006",
+      "source_chunk": "decisions.md#76",
+      "chunks": [
+        76,
+        77
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 3
+    },
+    {
+      "id": "g007",
+      "source_chunk": "decisions.md#85",
+      "chunks": [
+        85
+      ],
+      "method": "verbatim",
+      "covered_atoms": 3,
+      "total_atoms": 3
+    },
+    {
+      "id": "g008",
+      "source_chunk": "decisions.md#90",
+      "chunks": [
+        90
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 2
+    },
+    {
+      "id": "g009",
+      "source_chunk": "decisions.md#113",
+      "chunks": [
+        113
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g010",
+      "source_chunk": "decisions.md#115",
+      "chunks": [
+        115
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g011",
+      "source_chunk": "decisions.md#121",
+      "chunks": [
+        121
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g012",
+      "source_chunk": "decisions.md#160",
+      "chunks": [
+        160
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g013",
+      "source_chunk": "k8s-concepts.md#261",
+      "chunks": [
+        261,
+        263
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 2
+    },
+    {
+      "id": "g014",
+      "source_chunk": "k8s-concepts.md#262",
+      "chunks": [
+        262
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g015",
+      "source_chunk": "k8s-concepts.md#263",
+      "chunks": [
+        263
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g016",
+      "source_chunk": "k8s-concepts.md#265",
+      "chunks": [
+        265
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g017",
+      "source_chunk": "k8s-concepts.md#271",
+      "chunks": [
+        271,
+        272
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 2
+    },
+    {
+      "id": "g018",
+      "source_chunk": "k8s-concepts.md#277",
+      "chunks": [
+        277
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g019",
+      "source_chunk": "k8s-concepts.md#278",
+      "chunks": [
+        278
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g020",
+      "source_chunk": "k8s-concepts.md#283",
+      "chunks": [
+        283
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g021",
+      "source_chunk": "kubectl-cheatsheet.md#305",
+      "chunks": [
+        305
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 2
+    },
+    {
+      "id": "g022",
+      "source_chunk": "kubectl-cheatsheet.md#302",
+      "chunks": [
+        302
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g023",
+      "source_chunk": "kubectl-cheatsheet.md#305",
+      "chunks": [
+        305
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 2
+    },
+    {
+      "id": "g024",
+      "source_chunk": "kubectl-cheatsheet.md#311",
+      "chunks": [
+        311
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g025",
+      "source_chunk": "kubectl-cheatsheet.md#299",
+      "chunks": [
+        299
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 2
+    },
+    {
+      "id": "g026",
+      "source_chunk": "kubectl-cheatsheet.md#294",
+      "chunks": [
+        294,
+        295
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 2
+    },
+    {
+      "id": "g027",
+      "source_chunk": "kubectl-cheatsheet.md#313",
+      "chunks": [
+        313
+      ],
+      "method": "verbatim",
+      "covered_atoms": 4,
+      "total_atoms": 4
+    },
+    {
+      "id": "g028",
+      "source_chunk": "env-setup.md#231",
+      "chunks": [
+        231
+      ],
+      "method": "verbatim",
+      "covered_atoms": 3,
+      "total_atoms": 3
+    },
+    {
+      "id": "g029",
+      "source_chunk": "env-setup.md#244",
+      "chunks": [
+        244
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g030",
+      "source_chunk": "env-setup.md#247",
+      "chunks": [
+        247
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 2
+    },
+    {
+      "id": "g031",
+      "source_chunk": "env-setup.md#233",
+      "chunks": [
+        233,
+        235,
+        236
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 4
+    },
+    {
+      "id": "g032",
+      "source_chunk": "docker-data-move-to-E.md#209",
+      "chunks": [
+        209
+      ],
+      "method": "verbatim",
+      "covered_atoms": 1,
+      "total_atoms": 1
+    },
+    {
+      "id": "g033",
+      "source_chunk": "docker-data-move-to-E.md#213",
+      "chunks": [
+        213
+      ],
+      "method": "verbatim",
+      "covered_atoms": 6,
+      "total_atoms": 6
+    },
+    {
+      "id": "g034",
+      "source_chunk": "docker-data-move-to-E.md#221",
+      "chunks": [
+        221,
+        222,
+        223
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 4
+    },
+    {
+      "id": "g035",
+      "source_chunk": "docker-data-move-to-E.md#218",
+      "chunks": [
+        218
+      ],
+      "method": "verbatim",
+      "covered_atoms": 4,
+      "total_atoms": 4
+    },
+    {
+      "id": "g036",
+      "source_chunk": "resource-ledger.md#322",
+      "chunks": [
+        322,
+        323
+      ],
+      "method": "verbatim",
+      "covered_atoms": 3,
+      "total_atoms": 3
+    },
+    {
+      "id": "g037",
+      "source_chunk": "resource-ledger.md#325",
+      "chunks": [
+        324,
+        325
+      ],
+      "method": "verbatim",
+      "covered_atoms": 2,
+      "total_atoms": 3
+    },
+    {
+      "id": "g038",
+      "source_chunk": "resource-ledger.md#315",
+      "chunks": [
+        315
+      ],
+      "method": "verbatim",
+      "covered_atoms": 4,
+      "total_atoms": 4
+    },
+    {
+      "id": "g039",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g040",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g041",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g042",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g043",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g044",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g045",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g046",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g047",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g048",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g049",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    },
+    {
+      "id": "g050",
+      "source_chunk": null,
+      "chunks": [],
+      "method": "refuse",
+      "covered_atoms": 0,
+      "total_atoms": 0
+    }
+  ]
+}
