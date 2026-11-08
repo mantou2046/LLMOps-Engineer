@@ -232,4 +232,21 @@ cd /e/Projects/LLMOps-Engineer
 
 **旧 preflight 的坑**：`w6d5_attribution.py --preflight` 对 `glm-5.3-flash` 3/3 假阴性——它把 `max_tokens` 写死 180、prompt 只写「不要解释」，模型进入 thinking 后 `reasoning_tokens` 吃满额度、`content` 为空，报 JSONDecodeError。实测同一模型换成门禁脚本的措辞后 reasoning 只花 144 tokens 就正常输出 JSON；ragas 的 `build_evaluator` 不设 `max_tokens`，不受影响（D4 全量 50 题四项全齐可作旁证）。已在该函数 docstring 标注废弃，换裁判一律走 `scripts/w6d4_judge_preflight.py`。
 
-**仍未收口**：D3 真人双标、按 DEC-042 复核条件重评 rerank、12 道拒答与 3 道 `boundary` 分组报分（本实验 10 题全是可答题）、11/15 改动前后对比数字。裁判与生成不同模型避开了自评偏差，但新裁判自身口径仍可能与旧版不同，跨裁判的绝对值不可直接比较。
+## 按题型切片（11-08 晚间离线补算，零 LLM 调用）
+
+`comparison.json` 的 `per_question` 每行本来就带 `type`，把 10 题按题型切开不需要重跑评分。样本实际是 **`single_hop` 8 / `multi_hop` 2**（并非只有一种题型），下表均值按组重算；分组加权可还原全量 Δ，例如新裁判 AR `(8×0.0259 + 2×0.0244)/10 = +0.0256`。
+
+| 裁判 | 题型 | n | AR A→B / Δ | faithfulness Δ | CR Δ | CP Δ |
+| --- | --- | --- | --- | --- | --- | --- |
+| `glm-5.3-flash`（独立） | single_hop | 8 | 0.7564→0.7823 / **+0.0259** | −0.0643 | 0.0000 | +0.0208 |
+| `glm-5.3-flash`（独立） | multi_hop | 2 | 0.7977→0.8222 / **+0.0244** | −0.1000 | −0.1000 | 0.0000 |
+| `deepseek-v4-flash`（同模型，旧） | single_hop | 8 | 0.6128→0.6524 / +0.0396 | −0.1518 | +0.0583 | 全 NaN |
+| `deepseek-v4-flash`（同模型，旧） | multi_hop | 2 | 0.6604→0.5248 / −0.1356 | 0.0000 | −0.4000（仅 1 题配对） | 全 NaN |
+
+**读数**：独立裁判下 AR Δ 两组几乎相同（+0.0259 / +0.0244），faithfulness 两组都回退 → **「改动不采纳」的判定对题型不敏感**，这是比全量均值更细的一层旁证。旧裁判两组 AR Δ 一正一负，但 `multi_hop` 只有 2 题、`g006` 还缺 CR 配对、CP 全 NaN，属小样本噪声，不作结论。⚠️ `multi_hop` n=2，两组数字都只作线索，不能当统计结论；跨裁判绝对值仍不可直接比。
+
+**这条不等于欠账收口**：本实验 10 题全部是**可答题**（`must_refuse=false`），12 道应拒答与 3 道 `boundary` 从未进入 A/B 配对。D4 全量 50 题**已给这 15 题分组报分**（`RAGAS_BASELINE.md` §全量复跑：refuse AR 0.0524 / CP 1.0000），那是另一件事；缺的是在**单变量配对口径**下看它们。要补得新生成 B 组回答再打分，且拒答题的 `reference` 写的是期望行为而非事实答案，AR / CP 的读法要先定口径（见局限段 `g002` 被误判成拒答的例子）。
+
+复算方式（纯离线、不调 LLM）：读 `evals/out/w6d5/comparison.json` 与 `comparison.baseline-20261108.json` 的 `per_question`，按 `type` 分组求各指标 `*_A` / `*_B` / `*_delta` 均值。
+
+**仍未收口**：D3 真人双标、11/15 改动前后对比数字、**D5 的 A/B 配对样本尚未覆盖 12 道应拒答与 3 道 `boundary`**（D4 全量已给这 15 题分组报分，缺的是配对口径；现有 10 题按题型切片见上一节）。裁判与生成不同模型避开了自评偏差，但新裁判自身口径仍可能与旧版不同，跨裁判的绝对值不可直接比较。按 DEC-042 复核条件重评 rerank 已于 11-08 收口，见 `evals/RERANK_RECHECK.md`。
