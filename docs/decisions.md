@@ -1708,6 +1708,10 @@ W6 D1 上午用离线内存余弦跑出递归 B（400/50）基线：330 块、hi
 
 > 精确检索是尺子，ANN 是捷径；先量准尺子，再给捷径定参数。
 
+**2026-11-08 应用侧接线补记**：新增 `app/retrieval.py` 作为统一的 pgvector 连接入口 —— `connect_pgvector()` 建立连接后立刻执行会话级 `SET ivfflat.probes = 3`（可由 `IVFFLAT_PROBES` 覆盖，非法值回退 3），host 固定 `127.0.0.1` 避开 IPv6 坑；psycopg 只在 `requirements-eval.txt`，所以延迟导入。`tests/test_retrieval_probes.py` 用假驱动做 6 条集成测（默认值、非法值回退、IPv4、显式/环境变量覆盖、SET 确实执行），`pytest` 46 passed。
+
+⚠️ **口径边界**：`app/` 目前只有 `/chat`、指标与路由，**没有 RAG 检索端点**，本模块暂无生产调用方；这一步是「把散在脚本里的 SET 收敛成应用侧入口并加测试」，不是「线上已修好」。等 W7 接检索服务时统一走 `connect_pgvector()`，别在业务代码里手写 SET。DEC-042 里「生产检索连接还没显式设 probes」这条代价据此划掉。
+
 ---
 
 ## DEC-042 · 生产链路上 RRF 已满分，rerank 默认不开（2026-11-05 · W6 D2）
@@ -1761,7 +1765,7 @@ W6 D2 的融合实验（DEC-040）是离线内存跑的。11/5 下午 D1 把 `ra
 | 默认不开 rerank，语义排序能力暂时没用上 | 等 golden set 出来，用 context precision / faithfulness 重评；那时才有能判语义的尺子 |
 | 1.11 GB 模型落盘，仓库不收 | `models/` 已在 .gitignore；`scripts/fetch_reranker_model.sh` 可复现下载（ModelScope 直连 + 断点续传 + 体积校验） |
 | 延迟数字是本机 CPU、10 题 × 3 次，样本小 | 只作量级与取舍依据，不当 P99 性能结论；换 GPU 或换小模型要重测 |
-| 生产检索连接还没显式设 `probes=3` | DEC-041 已定，本次仅在脚本内 SET；应用接入时补集成测 |
+| ~~生产检索连接还没显式设 `probes=3`~~ → 11-08 已接线 | `app/retrieval.py` 统一入口 + 6 条集成测；⚠️ `app/` 暂无 RAG 端点，见 DEC-041 接线补记 |
 
 **复核条件**：11/11 建好 50 题 golden set 后，用同一套 RRF 候选重跑 `w6d2_rerank_bench.py`，判据换成标准答案与 context precision。若精排能把 context precision 拉高一档，且业务能接受秒级延迟，再考虑按场景开关（例如只对离线批处理开）。11/12 拿到 RAGAS 四项后一并重评。
 
@@ -1770,6 +1774,12 @@ W6 D2 的融合实验（DEC-040）是离线内存跑的。11/5 下午 D1 把 `ra
 **面试怎么说**：混合检索在生产库上复验后，RRF 的 hit@1 已经 10/10。我接了 bge-reranker-base 量延迟，向量查询约 4 ms，精排 top-5 要 2 秒多，涨了五百多倍，还随着候选数近线性涨到 8 秒，所以默认不开。有意思的是精排后关键词命中率掉到 6/10，我逐题查了顶上来的块，发现语义都贴题，只是不含判据里那个字面词——这说明我手上这把尺子量不了语义排序，不能拿它给 rerank 下结论。要判得等人工标注的 golden set 和 context precision。这里我更愿意承认「现在判不了」，而不是硬给一个好看的数字。
 
 > 判据顶格的时候，先问尺子量的是什么，再问方法好不好。
+
+**2026-11-08 晚间复核补记（条件已兑现，结论不变）**：50 题 golden set 与 RAGAS 四项基线都已就位，按上面的「复核条件」重跑了一次。脚本 `scripts/w6d2_rerank_recheck.py`：分层抽 20 道可答题（`single_hop` 11 / `multi_hop` 3 / `instruction` 3 / `boundary` 3），离线重建 RRF 候选并**逐字校验基线 top-5 与 D4 一致 20/20**，只把排序换成 `bge-reranker-base` 对 top-10 重排后的 top-5；判据用带 `reference` 的 `LLMContextPrecisionWithReference`，独立裁判 `glm-5.3-flash`，40 个样本全部出分，另配零 LLM 的 `reference_atoms` 覆盖率旁证。
+
+结果：CP 0.7843 → 0.8451，配对 Δ **+0.0608**，但 σ **0.2399**、7 涨 5 跌 8 平；atoms 覆盖率 0.7100 → 0.7783 同向，可 `instruction` 组 CP 涨（0.2333 → 0.5000）而 atoms 跌（0.667 → 0.333），两把尺子互相打架。精排延迟实测 P50 **4545 ms** / P95 5193 ms（top-10 候选，比原测 top-5 的 2.2–2.4 s 更慢）。
+
+**判定：默认不开维持**。理由从「尺子量不了、现在判不了」升级为「用正式 CP 复评后，收益落在逐题波动里，代价是每次查询约 4.5 秒，性价比不成立」。同时把上面「生产检索连接还没显式设 `probes=3`」这条代价划掉：见 DEC-041 的应用侧接线补记。**复核条件已兑现，不再挂欠账**；若将来要翻案，需 50 题全量 + 固定裁判多次重复，并先对齐 `instruction` 题的标注口径。详见 `evals/RERANK_RECHECK.md`。
 
 ---
 
