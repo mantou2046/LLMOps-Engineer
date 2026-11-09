@@ -117,7 +117,11 @@ COPY --chown=appuser:appuser app/llm.py ./llm.py
 COPY --chown=appuser:appuser app/observability.py ./observability.py
 COPY --chown=appuser:appuser app/prompts.py ./prompts.py
 COPY --chown=appuser:appuser app/routing.py ./routing.py
+COPY --chown=appuser:appuser app/input_guard.py ./input_guard.py
+COPY --chown=appuser:appuser app/output_guard.py ./output_guard.py
 COPY --chown=appuser:appuser app/metrics.py ./metrics.py
+COPY --chown=appuser:appuser prompts/input_guard/v1.yaml /prompts/input_guard/v1.yaml
+COPY --chown=appuser:appuser prompts/structured_json/ /prompts/structured_json/
 
 # 切到非 root
 USER appuser
