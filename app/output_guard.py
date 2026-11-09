@@ -198,28 +198,63 @@ def inspect_output(
 # 注入 inspect_output。判不出来、格式不合约定、上游报错时，调用方一律安全兜底。
 # ---------------------------------------------------------------------------
 
+def _judge_objects(content: object, label: str) -> list[dict]:
+    """取出返回里所有顶层 JSON 对象。
+
+    实测 primary 档模型会把同一个结论重复输出两三次、或前后夹解释文字；
+    这里逐个扫描而不是整段 json.loads，避免把「格式包装」误判成「判定失败」。
+    字段契约和取值枚举仍在 _parse_judge_json 里严格校验，没有放宽安全口径。
+    """
+    if isinstance(content, dict):
+        return [content]
+    if not isinstance(content, str):
+        raise ValueError(f"{label}判定结果必须是 JSON 对象或字符串")
+
+    decoder = json.JSONDecoder()
+    found: list[dict] = []
+    pos = 0
+    while pos < len(content):
+        brace = content.find("{", pos)
+        if brace < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(content, brace)
+        except json.JSONDecodeError:
+            pos = brace + 1
+            continue
+        if isinstance(obj, dict):
+            found.append(obj)
+        pos = max(end, brace + 1)
+    if not found:
+        raise ValueError(f"{label}判定结果里没有可解析的 JSON 对象")
+    return found
+
+
 def _parse_judge_json(
     content: object, *, allowed: set[str], label: str
 ) -> tuple[str, str]:
-    """只接受约定字段与取值的判定结果；格式不合规就抛错，绝不猜一个安全结论。"""
-    if isinstance(content, str):
-        try:
-            content = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{label}判定结果不是合法 JSON") from exc
+    """只接受约定字段与取值的判定结果；格式不合规就抛错，绝不猜一个安全结论。
 
-    if not isinstance(content, dict):
-        raise ValueError(f"{label}判定结果必须是 JSON 对象")
-    if set(content) != {"decision", "reason"}:
-        raise ValueError(f"{label}判定结果字段不符合约定")
+    返回里若有多个 JSON 对象（模型重复输出），要求每个都合规且结论一致；
+    出现互相矛盾的结论时拒绝，由调用方安全兜底。
+    """
+    decisions: list[str] = []
+    reason = ""
+    for obj in _judge_objects(content, label):
+        if set(obj) != {"decision", "reason"}:
+            raise ValueError(f"{label}判定结果字段不符合约定")
+        decision = obj["decision"]
+        if decision not in allowed:
+            raise ValueError(f"{label}判定结果 decision 不在允许范围内")
+        candidate = obj["reason"]
+        if not isinstance(candidate, str) or not candidate.strip() or len(candidate) > 120:
+            raise ValueError(f"{label}判定结果 reason 必须是 1 到 120 个字符")
+        decisions.append(decision)
+        reason = candidate.strip()
 
-    decision = content["decision"]
-    reason = content["reason"]
-    if decision not in allowed:
-        raise ValueError(f"{label}判定结果 decision 不在允许范围内")
-    if not isinstance(reason, str) or not reason.strip() or len(reason) > 120:
-        raise ValueError(f"{label}判定结果 reason 必须是 1 到 120 个字符")
-    return decision, reason.strip()
+    if len(set(decisions)) != 1:
+        raise ValueError(f"{label}判定结果前后结论不一致")
+    return decisions[0], reason
 
 
 def parse_toxicity_response(content: object) -> str:
@@ -254,7 +289,8 @@ def _model_judge(name: str, payload: dict[str, str]) -> object:
         tier_name="primary",
         structured=False,
         temperature=0,
-        max_tokens=128,
+        # 128 会把 reason 截断，实测造成判定结果半截 JSON；放宽到 256。
+        max_tokens=256,
     ).content
 
 

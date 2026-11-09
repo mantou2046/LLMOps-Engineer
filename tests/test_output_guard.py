@@ -357,3 +357,40 @@ def test_plain_text_checker_error_fails_closed(monkeypatch):
     assert response.json()["content"] == SAFE_FALLBACK["answer"]
     assert meta["toxicity_status"] == "error"
     assert "toxicity_check_error" in meta["reasons"]
+
+
+def test_parse_toxicity_accepts_repeated_json():
+    repeated = (
+        '\n\n{"decision":"allow","reason":"正常内容"}'
+        '{"decision":"allow","reason":"正常内容"}'
+    )
+    assert parse_toxicity_response(repeated) == "allow"
+
+
+def test_parse_grounding_accepts_surrounding_text():
+    wrapped = (
+        '结论如下：{"decision":"unsupported","reason":"资料没有这个数字"}'
+        "（以上为判定结果）"
+    )
+    assert parse_grounding_response(wrapped) is False
+
+
+def test_parse_judge_rejects_conflicting_decisions():
+    conflicting = (
+        '{"decision":"allow","reason":"看着还行"}'
+        '{"decision":"block","reason":"其实是辱骂"}'
+    )
+    with pytest.raises(ValueError, match="不一致"):
+        parse_toxicity_response(conflicting)
+
+
+def test_parse_judge_rejects_truncated_json():
+    with pytest.raises(ValueError, match="没有可解析"):
+        parse_toxicity_response('{"decision":"block","reason":"包含侮辱')
+
+
+def test_parse_judge_still_rejects_extra_fields():
+    with pytest.raises(ValueError, match="字段"):
+        parse_toxicity_response(
+            '{"decision":"allow","reason":"正常","category":"none"}'
+        )
