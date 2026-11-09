@@ -185,3 +185,175 @@ def test_guarded_streaming_is_rejected_before_upstream(monkeypatch):
     )
     assert response.status_code == 422
     assert "流式" in response.json()["detail"]
+
+
+# ---- W7 D2：真实模型判定器的解析契约与 /chat 接线 ---------------------------
+
+import pytest  # noqa: E402
+from output_guard import (  # noqa: E402
+    parse_grounding_response,
+    parse_toxicity_response,
+)
+
+
+def _fake_outcome(content):
+    return SimpleNamespace(
+        request_id="test",
+        content=content,
+        model="mock",
+        tier="primary",
+        mode="mock",
+        usage={},
+        attempts=1,
+        retries=0,
+        latency_ms=1.0,
+        structured=True,
+        parse_failed=False,
+        finish_reason="stop",
+        degraded=False,
+        degraded_from=None,
+        prompt_version="",
+        prompt_hash="",
+    )
+
+
+def test_parse_toxicity_response_accepts_contract():
+    assert parse_toxicity_response('{"decision":"block","reason":"辱骂"}') == "block"
+    assert parse_toxicity_response({"decision": "allow", "reason": "正常"}) == "allow"
+
+
+def test_parse_toxicity_response_rejects_bad_contract():
+    bad_payloads = [
+        "不是 JSON",
+        '{"decision":"maybe","reason":"取值不认识"}',
+        '{"decision":"block"}',
+        '{"decision":"block","reason":"","category":"extra"}',
+    ]
+    for bad in bad_payloads:
+        with pytest.raises(ValueError):
+            parse_toxicity_response(bad)
+
+
+def test_parse_grounding_response_accepts_contract():
+    assert parse_grounding_response('{"decision":"supported","reason":"资料里有"}') is True
+    assert parse_grounding_response({"decision": "unsupported", "reason": "没找到"}) is False
+    with pytest.raises(ValueError):
+        parse_grounding_response({"decision": "allow", "reason": "用错枚举"})
+
+
+def test_model_judge_refuses_mock_mode(monkeypatch):
+    import llm
+    import output_guard
+
+    monkeypatch.setattr(llm, "LLM_MODE", "mock")
+    with pytest.raises(RuntimeError, match="真实模型"):
+        output_guard.judge_toxicity("普通回答")
+    with pytest.raises(RuntimeError, match="真实模型"):
+        output_guard.judge_grounding("普通回答", "资料")
+
+
+def test_structured_endpoint_uses_real_judges(monkeypatch):
+    monkeypatch.setattr("main.OUTPUT_GUARD_ENABLED", True)
+    monkeypatch.setattr("main.OUTPUT_GUARD_MODEL_JUDGE_ENABLED", True)
+    monkeypatch.setattr("output_guard.judge_toxicity", lambda _text: "allow")
+    monkeypatch.setattr("output_guard.judge_grounding", lambda _a, _c: True)
+    monkeypatch.setattr(
+        "main.llm.chat",
+        lambda **_kwargs: _fake_outcome({"answer": "答案是 42。", "citations": []}),
+    )
+    response = client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "给我一个 JSON 回答"}],
+            "structured": True,
+            "context": "实验记录：本轮数字是 42。",
+        },
+    )
+    assert response.status_code == 200
+    meta = response.json()["output_guard"]
+    assert meta["toxicity_status"] == "allow"
+    assert meta["grounding_status"] == "supported"
+    assert response.json()["content"]["answer"] == "答案是 42。"
+
+
+def test_structured_endpoint_blocks_harmful_model_verdict(monkeypatch):
+    monkeypatch.setattr("main.OUTPUT_GUARD_ENABLED", True)
+    monkeypatch.setattr("main.OUTPUT_GUARD_MODEL_JUDGE_ENABLED", True)
+    monkeypatch.setattr("output_guard.judge_toxicity", lambda _text: "block")
+    monkeypatch.setattr("output_guard.judge_grounding", lambda _a, _c: True)
+    monkeypatch.setattr(
+        "main.llm.chat",
+        lambda **_kwargs: _fake_outcome({"answer": "你真差劲，去死吧。", "citations": []}),
+    )
+    response = client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "给我一个 JSON 回答"}],
+            "structured": True,
+        },
+    )
+    assert response.status_code == 200
+    meta = response.json()["output_guard"]
+    assert response.json()["content"] == SAFE_FALLBACK
+    assert meta["toxicity_status"] == "block"
+    assert "harmful_content" in meta["reasons"]
+
+
+def test_grounding_skipped_without_context(monkeypatch):
+    calls = []
+    monkeypatch.setattr("main.OUTPUT_GUARD_ENABLED", True)
+    monkeypatch.setattr("main.OUTPUT_GUARD_MODEL_JUDGE_ENABLED", True)
+    monkeypatch.setattr("output_guard.judge_toxicity", lambda _text: "allow")
+    monkeypatch.setattr(
+        "output_guard.judge_grounding",
+        lambda _a, _c: (calls.append(1), True)[1],
+    )
+    monkeypatch.setattr(
+        "main.llm.chat",
+        lambda **_kwargs: _fake_outcome({"answer": "答案是 42。", "citations": []}),
+    )
+    response = client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "给我一个 JSON 回答"}],
+            "structured": True,
+        },
+    )
+    assert response.status_code == 200
+    assert calls == []
+    assert response.json()["output_guard"]["grounding_status"] == "not_checked"
+
+
+def test_plain_text_endpoint_uses_toxicity_judge(monkeypatch):
+    monkeypatch.setattr("main.OUTPUT_GUARD_ENABLED", True)
+    monkeypatch.setattr("main.OUTPUT_GUARD_MODEL_JUDGE_ENABLED", True)
+    monkeypatch.setattr("output_guard.judge_toxicity", lambda _text: "block")
+    monkeypatch.setattr(
+        "main.llm.chat", lambda **_kwargs: _fake_outcome("普通文本回答")
+    )
+    response = client.post(
+        "/chat", json={"messages": [{"role": "user", "content": "请回答"}]}
+    )
+    assert response.status_code == 200
+    assert response.json()["content"] == SAFE_FALLBACK["answer"]
+    assert response.json()["output_guard"]["toxicity_status"] == "block"
+
+
+def test_plain_text_checker_error_fails_closed(monkeypatch):
+    def broken(_text):
+        raise TimeoutError("checker timed out")
+
+    monkeypatch.setattr("main.OUTPUT_GUARD_ENABLED", True)
+    monkeypatch.setattr("main.OUTPUT_GUARD_MODEL_JUDGE_ENABLED", True)
+    monkeypatch.setattr("output_guard.judge_toxicity", broken)
+    monkeypatch.setattr(
+        "main.llm.chat", lambda **_kwargs: _fake_outcome("普通文本回答")
+    )
+    response = client.post(
+        "/chat", json={"messages": [{"role": "user", "content": "请回答"}]}
+    )
+    assert response.status_code == 200
+    meta = response.json()["output_guard"]
+    assert response.json()["content"] == SAFE_FALLBACK["answer"]
+    assert meta["toxicity_status"] == "error"
+    assert "toxicity_check_error" in meta["reasons"]

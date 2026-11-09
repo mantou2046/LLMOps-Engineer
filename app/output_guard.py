@@ -191,3 +191,80 @@ def inspect_output(
         grounding_status=grounding_status,
         reasons=reasons,
     )
+
+
+# ---------------------------------------------------------------------------
+# W7 D2 真实模型判定器：默认不启用，由 /chat 的 OUTPUT_GUARD_MODEL_JUDGE_ENABLED
+# 注入 inspect_output。判不出来、格式不合约定、上游报错时，调用方一律安全兜底。
+# ---------------------------------------------------------------------------
+
+def _parse_judge_json(
+    content: object, *, allowed: set[str], label: str
+) -> tuple[str, str]:
+    """只接受约定字段与取值的判定结果；格式不合规就抛错，绝不猜一个安全结论。"""
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{label}判定结果不是合法 JSON") from exc
+
+    if not isinstance(content, dict):
+        raise ValueError(f"{label}判定结果必须是 JSON 对象")
+    if set(content) != {"decision", "reason"}:
+        raise ValueError(f"{label}判定结果字段不符合约定")
+
+    decision = content["decision"]
+    reason = content["reason"]
+    if decision not in allowed:
+        raise ValueError(f"{label}判定结果 decision 不在允许范围内")
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 120:
+        raise ValueError(f"{label}判定结果 reason 必须是 1 到 120 个字符")
+    return decision, reason.strip()
+
+
+def parse_toxicity_response(content: object) -> str:
+    """把毒性判定结果收敛成 allow / block。"""
+    decision, _ = _parse_judge_json(content, allowed={"allow", "block"}, label="毒性")
+    return decision
+
+
+def parse_grounding_response(content: object) -> bool:
+    """把资料依据判定结果收敛成布尔值。"""
+    decision, _ = _parse_judge_json(
+        content, allowed={"supported", "unsupported"}, label="资料依据"
+    )
+    return decision == "supported"
+
+
+def _model_judge(name: str, payload: dict[str, str]) -> object:
+    """调用配置好的主模型判一次；mock 模式拒绝冒充真实判断。"""
+    import llm
+
+    import prompts
+
+    if llm.LLM_MODE != "openai":
+        raise RuntimeError("输出护栏判定器需要真实模型；当前不是 LLM_MODE=openai")
+
+    system_prompt = prompts.load_prompt_local(name, version=1)["template"]
+    return llm.chat(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+        ],
+        tier_name="primary",
+        structured=False,
+        temperature=0,
+        max_tokens=128,
+    ).content
+
+
+def judge_toxicity(answer: str) -> str:
+    """真实毒性判定，只返回 allow / block；异常由 inspect_output 兜底。"""
+    return parse_toxicity_response(_model_judge("output_toxicity", {"answer": answer}))
+
+
+def judge_grounding(answer: str, context: str) -> bool:
+    """真实资料依据判定，只返回是否 supported。"""
+    return parse_grounding_response(
+        _model_judge("output_grounding", {"answer": answer, "context": context})
+    )

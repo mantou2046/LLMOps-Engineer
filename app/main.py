@@ -43,7 +43,7 @@ import sys
 import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -105,6 +105,11 @@ INPUT_GUARD_MODEL_JUDGE_ENABLED = (
 
 # W7 D2 输出护栏：默认关闭。开启后，非流式回答会检查 JSON 格式并遮盖个人信息。
 OUTPUT_GUARD_ENABLED = os.getenv("OUTPUT_GUARD_ENABLED", "0") == "1"
+# 真实模型判定（毒性 + 资料依据）也默认关闭：会额外调用主模型、产生用量。
+# 打开后结构化回答走两个判定器，普通文本回答走毒性判定；判定器异常一律安全兜底。
+OUTPUT_GUARD_MODEL_JUDGE_ENABLED = (
+    os.getenv("OUTPUT_GUARD_MODEL_JUDGE_ENABLED", "0") == "1"
+)
 
 # /work 单次最长空转秒数上限：防止误用（如 seconds=99999）把节点拖垮
 MAX_BURN_SECONDS = 5.0
@@ -175,7 +180,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "version": APP_VERSION,
-        "time": datetime.now(timezone.utc).isoformat(),
+        "time": datetime.now(UTC).isoformat(),
     }
 
 
@@ -290,6 +295,12 @@ class ChatRequest(BaseModel):
     )
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_tokens: int | None = Field(default=1024, ge=1, le=8192)
+    # W7 D2：资料依据检查的可选输入。只给输出护栏用，不拼进 messages、不影响生成。
+    context: str | None = Field(
+        default=None,
+        max_length=8000,
+        description="资料依据检查用的检索资料；只用于输出检查，不参与生成",
+    )
 
 
 def _attempt_headers(
@@ -450,25 +461,48 @@ def chat(req: ChatRequest) -> Response:
     guarded_content: Any = out.content
     guard_metadata: dict[str, Any] | None = None
     if OUTPUT_GUARD_ENABLED:
+        use_model_judge = OUTPUT_GUARD_MODEL_JUDGE_ENABLED
         if req.structured:
             guard = output_guard.inspect_output(
                 out.content,
                 repair=lambda raw, error: _repair_structured_output(
                     raw, error, decision.tier
                 ),
+                toxicity_judge=(
+                    output_guard.judge_toxicity if use_model_judge else None
+                ),
+                grounding_judge=(
+                    output_guard.judge_grounding if use_model_judge else None
+                ),
+                context=req.context,
             )
             guarded_content = guard.output
             guard_metadata = guard.as_dict()
         else:
             safe_text, redacted_types = output_guard.redact_pii(str(out.content))
             guarded_content = safe_text
+            toxicity_status = "not_checked"
+            reasons = ["pii_redacted"] if redacted_types else []
+            if use_model_judge:
+                try:
+                    toxicity_status = output_guard.judge_toxicity(safe_text)
+                except Exception:
+                    # 判定器异常按安全原则处理，不把原文当作安全结果。
+                    toxicity_status = "error"
+                if toxicity_status != "allow":
+                    guarded_content = output_guard.SAFE_FALLBACK["answer"]
+                    reasons.append(
+                        "toxicity_check_error"
+                        if toxicity_status == "error"
+                        else "harmful_content"
+                    )
             guard_metadata = {
-                "degraded": False,
+                "degraded": guarded_content != safe_text,
                 "repaired": False,
                 "redacted_types": redacted_types,
-                "toxicity_status": "not_checked",
+                "toxicity_status": toxicity_status,
                 "grounding_status": "not_checked",
-                "reasons": ["pii_redacted"] if redacted_types else [],
+                "reasons": reasons,
             }
 
     return JSONResponse(
