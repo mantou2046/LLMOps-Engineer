@@ -47,6 +47,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import cost
 import input_guard
 import llm
 import metrics
@@ -110,6 +111,11 @@ OUTPUT_GUARD_ENABLED = os.getenv("OUTPUT_GUARD_ENABLED", "0") == "1"
 OUTPUT_GUARD_MODEL_JUDGE_ENABLED = (
     os.getenv("OUTPUT_GUARD_MODEL_JUDGE_ENABLED", "0") == "1"
 )
+
+# W7 D3 成本控制：精确缓存与 Token 审计都默认关闭。
+# 关掉时 /chat 行为与 W7 D2 完全一致；打开才会在响应里出现 cost_cache 字段。
+COST_CACHE_ENABLED = os.getenv("COST_CACHE_ENABLED", "0") == "1"
+COST_LEDGER_ENABLED = os.getenv("COST_LEDGER_ENABLED", "0") == "1"
 
 # /work 单次最长空转秒数上限：防止误用（如 seconds=99999）把节点拖垮
 MAX_BURN_SECONDS = 5.0
@@ -423,6 +429,56 @@ def chat(req: ChatRequest) -> Response:
         decision.detail,
     )
 
+    # W7 D3 · 精确缓存（默认关闭）。命中就复用上次组装好的响应体，
+    # 那一次确实没调模型，所以 usage 记 0、成本点数记 0。
+    # 多轮 / 流式 / temperature>0 一律不缓存（理由见 cost.cacheable）。
+    cost_key: str | None = None
+    if (COST_CACHE_ENABLED or COST_LEDGER_ENABLED) and not req.stream:
+        ok, reason = cost.cacheable(
+            payload, stream=req.stream, temperature=req.temperature
+        )
+        if ok:
+            cost_key = cost.cache_key(
+                payload,
+                tier=decision.tier,
+                structured=req.structured,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+            )
+        else:
+            cost.CACHE.skip(reason)
+
+    if COST_CACHE_ENABLED and cost_key is not None:
+        cached = cost.CACHE.get(cost_key)
+        if cached is not None:
+            if COST_LEDGER_ENABLED:
+                cost.LEDGER.record(
+                    tier=decision.tier,
+                    usage={},
+                    cache_hit=True,
+                    query_id=cost_key[:8],
+                )
+            log.info("cost_cache=HIT key=%s tier=%s", cost_key[:12], decision.tier)
+            # ⚠️ 命中这次确实没调模型：不能把缓存里上次的 usage 原样回显，
+            #    否则前端/监控会以为这次又花了 45 tokens。用量归零、换新的
+            #    request_id（复用旧 id 会让两条请求在日志里混成一单）。
+            cached_body = {
+                **cached,
+                "request_id": f"cache-{cost_key[:12]}",
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "estimated": True,
+                    "cached": True,
+                },
+                "cost_cache": {"hit": True, "key": cost_key[:12]},
+            }
+            return JSONResponse(
+                content=cached_body,
+                headers={**_route_headers(decision), "X-Cost-Cache": "HIT"},
+            )
+
     if req.stream:
         try:
             stream = llm.open_stream(
@@ -505,27 +561,40 @@ def chat(req: ChatRequest) -> Response:
                 "reasons": reasons,
             }
 
+    body: dict[str, Any] = {
+        "request_id": out.request_id,
+        "model": out.model,
+        "tier": out.tier,
+        "upstream_mode": out.mode,
+        "structured": out.structured,
+        "content": guarded_content,
+        "usage": out.usage,
+        "finish_reason": out.finish_reason,
+        "attempts": out.attempts,
+        "retries": out.retries,
+        "latency_ms": round(out.latency_ms, 1),
+        "parse_failed": out.parse_failed,
+        # W2 D10：是否走了 fallback 降级（primary 重试耗尽后切备成功）
+        "degraded": out.degraded,
+        "degraded_from": out.degraded_from,
+        # W4 D6：这条请求凭什么判成这个档位（可回放的分流现场）
+        "routing": decision.as_dict(),
+        **({"output_guard": guard_metadata} if guard_metadata is not None else {}),
+    }
+
+    if COST_LEDGER_ENABLED:
+        cost.LEDGER.record(
+            tier=out.tier,
+            usage=out.usage,
+            cache_hit=False,
+            query_id=(cost_key or "")[:8],
+        )
+    # 降级回答来自 fallback 档位，别写进按 decision.tier 建过的键，否则会串答案。
+    if COST_CACHE_ENABLED and cost_key is not None and not out.degraded:
+        cost.CACHE.put(cost_key, body)
+
     return JSONResponse(
-        content={
-            "request_id": out.request_id,
-            "model": out.model,
-            "tier": out.tier,
-            "upstream_mode": out.mode,
-            "structured": out.structured,
-            "content": guarded_content,
-            "usage": out.usage,
-            "finish_reason": out.finish_reason,
-            "attempts": out.attempts,
-            "retries": out.retries,
-            "latency_ms": round(out.latency_ms, 1),
-            "parse_failed": out.parse_failed,
-            # W2 D10：是否走了 fallback 降级（primary 重试耗尽后切备成功）
-            "degraded": out.degraded,
-            "degraded_from": out.degraded_from,
-            # W4 D6：这条请求凭什么判成这个档位（可回放的分流现场）
-            "routing": decision.as_dict(),
-            **({"output_guard": guard_metadata} if guard_metadata is not None else {}),
-        },
+        content=body,
         headers={
             **_attempt_headers(out.attempts, out.retries, out.degraded, out.degraded_from),
             **_route_headers(decision),
@@ -535,6 +604,7 @@ def chat(req: ChatRequest) -> Response:
                 if out.prompt_version
                 else {}
             ),
+            **({"X-Cost-Cache": "MISS"} if COST_CACHE_ENABLED and cost_key else {}),
         },
     )
 

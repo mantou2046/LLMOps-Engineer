@@ -1,0 +1,20 @@
+{"id":"C01","text":"这个字段是什么意思？","kind":"simple","note":"高频简单问法"}
+{"id":"C02","text":"报销单的截止日期是几号？","kind":"simple","note":"高频简单问法"}
+{"id":"C03","text":"RRF 是什么的缩写？","kind":"simple","note":"高频简单问法"}
+{"id":"C04","text":"缓存的 TTL 默认多少秒？","kind":"simple","note":"高频简单问法"}
+{"id":"C05","text":"请解释一下 IVFFlat 的 probes 参数怎么填。","kind":"simple","note":"问法简单但偏长"}
+{"id":"C06","text":"对比一下 BM25 与向量检索在长尾问题上的差别，并说明为什么融合后 hit@1 能从 7/10 提升到 10/10。","kind":"complex","note":"强信号词 + 长题"}
+{"id":"C07","text":"为什么 rerank 精排 top-5 会净增 2.2 到 2.4 秒？请分析延迟构成并评估默认开启是否划算。","kind":"complex","note":"强信号词"}
+{"id":"C08","text":"根据以下材料，梳理 golden set 三轮复标的判定口径变化，并说明为什么按双指标收口不等于旧线达标。","kind":"complex","note":"引用材料 + 强信号词"}
+{"id":"C09","text":"评估一下把语义缓存阈值设为 0.85 的误伤风险，列出需要哪些前置条件。","kind":"complex","note":"强信号词"}
+{"id":"C10","text":"排查：容器里 127.0.0.1:31415 连不上网关，给出最短的定位步骤。","kind":"complex","note":"强信号词"}
+{"id":"C11","text":"primary 与 cheap 两个档位分别适合什么请求？","kind":"simple","note":"含对比词但含简单词"}
+{"id":"C12","text":"怎么填 .env 里的 LLM_PRIMARY_BASE_URL？","kind":"simple","note":"简单问法"}
+{"id":"C13","text":"请给一份 W6 周复盘的提纲，包含改动前后对比数字、证伪结论和欠账清单，并说明哪些数字不能写成提升。","kind":"complex","note":"长题 + 强信号词"}
+{"id":"C14","text":"优化一下这个查询的检索链路，说明每一步的取舍与风险。","kind":"complex","note":"强信号词"}
+{"id":"C15","text":"token 审计周报应该按哪些维度分组？","kind":"simple","note":"弱信号词"}
+{"id":"C16","text":"这个字段是什么意思？","kind":"simple","note":"与 C01 字面完全相同，用于精确缓存命中"}
+{"id":"C17","text":"RRF 是什么的缩写？","kind":"simple","note":"与 C03 字面完全相同，用于精确缓存命中"}
+{"id":"C18","text":"报销单的截止日期是几号？","kind":"simple","note":"与 C02 字面完全相同，用于精确缓存命中"}
+{"id":"C19","text":"请分析为什么 prompt 微调带来的 answer relevancy 变化小于噪声标尺，并推导该结论的适用边界。","kind":"complex","note":"强信号词 + 长题"}
+{"id":"C20","text":"方案：在 CI 里加非 LLM 门禁，写出阈值、抽样子集和改坏 prompt 后的预期行为。","kind":"complex","note":"强信号词"}
