@@ -6,8 +6,9 @@
 
 ⚠️ 证据纪律（任务卡 11/20 的硬要求）：
     每条推荐都必须带**非空的证据指针**，指向 W6/W7 已落库的实测报告；
-    凡涉及「微调」的推荐必须同时带上「真微调效果未量」的 caveat ——
-    D4 本机只跑了数学演示，没有真机训练数字，不许在这里含糊过去。
+    凡涉及「微调」的推荐必须同时带上「业务效果未量」的 caveat ——
+    D4 已在 Kaggle T4 跑通真 LoRA 并量到小样本格式行为，但那是 40 条合成样本，
+    不等于真实任务收益，不许含糊过去写成「微调有效」。
 
 证据索引（全部来自本仓已提交报告，不是编的）：
   · E-RAG-1   W6 D2：RRF 融合 hit@1 7/10→10/10、MRR 0.825→1.0
@@ -17,7 +18,7 @@
   · E-PROMPT-1 W6 D5 单变量 A/B：relevancy Δ +0.0046 < 噪声标尺 +0.0074，判定不采纳
   · E-PROMPT-2 W7 D2 输出护栏：JSON Schema 校验 + 最多修一次 + 固定兜底
   · E-FT-1    W7 D4 数学实跑：LoRA r=4 参数 12.5%、产物 12.8%、r=1 学不全
-  · E-FT-2    W7 D4：真 LoRA/QLoRA 本机跑不了，云端脚本未执行（**效果未量**）
+  · E-FT-2    W7 D4：Kaggle T4 云端真 LoRA，留出 20 条格式符合率 0%→100%（**业务效果未量**）
   · E-COST-1  W7 D3 压测：每千次成本点数 1754.6→626.5（−64.3%），缓存命中 28.4%
   · E-GUARD-1 W7 D2 量化评估：单次判定 P50 1.849s / P95 10.004s、+513 tokens，默认关闭
 """
@@ -56,8 +57,9 @@ EVIDENCE_INDEX: dict[str, str] = {
         "（evals/LORA_DEMO.md）"
     ),
     "E-FT-2": (
-        "W7 D4 真 LoRA/QLoRA 本机跑不了、云端脚本未执行 —— **效果未量**"
-        "（evals/LORA_DEMO.md §5）"
+        "W7 D4 云端补跑（2026-11-10）：Kaggle T4 / Qwen2.5-0.5B + LoRA r=8，"
+        "留出 20 条格式符合率与准确率 0%→100%、训练 8.2s / 峰值显存 2890MB；"
+        "**小样本格式证据已量、业务效果未量**（evals/LORA_DEMO.md §5）"
     ),
     "E-COST-1": (
         "W7 D3 压测：每千次成本点数 1754.6→626.5（−64.3%）、缓存命中 28.4%"
@@ -69,7 +71,10 @@ EVIDENCE_INDEX: dict[str, str] = {
     ),
 }
 
-FT_CAVEAT = "真微调效果未量：本机无 GPU，D4 只有数学实跑；上生产前必须云端补跑并回填数字"
+FT_CAVEAT = (
+    "真微调业务效果未量：D4 已在 Kaggle T4 跑通 LoRA（留出 20 条格式符合率 0%→100%），"
+    "但只有 40 条合成样本，未在真实任务上做 A/B；上生产前需补真实评估集"
+)
 
 
 @dataclass(frozen=True)
@@ -188,5 +193,5 @@ def validate(rec: Recommendation) -> list[str]:
         if e not in EVIDENCE_INDEX:
             problems.append(f"未知证据编号：{e}")
     if "微调" in rec.primary and not any("效果未量" in c for c in rec.caveats):
-        problems.append("推荐微调却没写「真微调效果未量」")
+        problems.append("推荐微调却没写「业务效果未量」声明")
     return problems
