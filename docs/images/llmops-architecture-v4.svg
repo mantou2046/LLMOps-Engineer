@@ -14,7 +14,7 @@
 
   <rect width="680" height="1320" fill="#ffffff"/>
 
-  <text x="24" y="34" font-size="19" font-weight="700" fill="#0f172a">LLMOps 作品集 · 架构图 v4 · 定稿</text>
+  <text x="24" y="34" font-size="19" font-weight="700" fill="#0f172a">LLMOps 作品集 · 架构图 v4.1 · 定稿</text>
   <text x="24" y="56" font-size="12" fill="#475569">《资金 / 财务制度知识库 · 智能问答与评估平台》　W8 D1 收口（2026-11-11）</text>
   <text x="24" y="74" font-size="12" fill="#475569">C4 只画前两层：L1 上下文（跟谁打交道）＋ L2 容器（可独立部署的部分）——十二层明细见 v3 图</text>
 
@@ -130,7 +130,7 @@
 
   <!-- ⑤ 观测 -->
   <rect x="36" y="916" width="608" height="150" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
-  <text x="48" y="942" font-size="11" font-weight="700" fill="#334155">⑤ 观测（旁路）—— 左侧汇流线 = APP /metrics + LL spend/tokens</text>
+  <text x="48" y="942" font-size="11" font-weight="700" fill="#334155">⑤ 观测（旁路）—— 左侧汇流线 = APP /metrics + LiteLLM spend/tokens</text>
   <rect class="node" x="52" y="958" width="120" height="60" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.2"/>
   <text x="112" y="980" font-size="10" font-weight="700" fill="#1e3a5f" text-anchor="middle">Prometheus</text>
   <text x="112" y="998" font-size="9" fill="#475569" text-anchor="middle">指标抓取</text>
@@ -199,7 +199,7 @@
 
   <!-- ============ 页脚：边界与指针（决策清单 D1–D8 已拆至 ARCHITECTURE.md 表格） ============ -->
   <rect x="24" y="1204" width="632" height="104" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
-  <text x="36" y="1226" font-size="10" font-weight="700" fill="#334155">决策标注 D1–D8（8 条）→ docs/ARCHITECTURE.md §2 表格；完整证据与复核条件 → docs/DECISION_INDEX.md</text>
+  <text x="36" y="1226" font-size="10" font-weight="700" fill="#334155">决策标注 D1–D8（按框中 DEC 号对应）→ docs/ARCHITECTURE.md §2 表格；完整证据 → docs/DECISION_INDEX.md</text>
   <text x="36" y="1246" font-size="9" fill="#475569">读图备注：⑤ MLflow 是服务端 UI，④ mlflow 库是其后端存储（同一系统的两面）；「精确缓存」的判定在 ② cost.py、存储在 ③ redis</text>
   <text x="36" y="1266" font-size="9" fill="#64748b">不能从这张图推出来的：单节点 kind 非生产 · 微调 100% 是 40 条合成样本的格式学习 · Agent 规划器是规则非模型 · checkpointer 进程内</text>
   <text x="36" y="1284" font-size="9" fill="#64748b">语义缓存三前置缺失未上 · 成本点数是演示单位（向量库 / rerank / Redis / 出流量未计入）· 上游是可替换供应商非具体模型</text>
