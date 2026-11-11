@@ -253,7 +253,10 @@ def main() -> None:
     print(
         f"\n断言 24/24 通过。明细：{OUT.relative_to(ROOT)}、{SPAN_OUT.relative_to(ROOT)}"
     )
-    print("默认路径：span 由本地 InMemorySpanExporter 验证，不联网。")
+    if args.langfuse:
+        print("8 场景仍由本地 InMemorySpanExporter 校验；下面额外用全局 tracer 上报 S1。")
+    else:
+        print("默认路径：span 由本地 InMemorySpanExporter 验证，不联网。")
 
     if args.langfuse:
         tracer = ag.enable_langfuse_tracing()

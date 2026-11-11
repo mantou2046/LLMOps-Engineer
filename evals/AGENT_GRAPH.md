@@ -201,6 +201,15 @@ SDK auth_check(host=127.0.0.1)   → True（禁用代理变量后）
 `app/observability.py` 里 `os.getenv("LANGFUSE_HOST", "http://localhost:3000")` 的**兜底默认值
 仍是 localhost**，本轮没动代码：正常路径都读 `.env`，只有 `.env` 缺键时才落到兜底值。
 
+**两个输出层小坑（14:4x 用户自查输出时发现）**：
+
+- `pytest -q` 在本机**不打印末尾汇总行**（`N passed`），交互式跑和重定向到文件都一样；
+  去掉 `-q` 正常显示 `22 passed in 2.50s`。要机器取数用 `--junit-xml`（实测
+  `tests=22 failures=0 errors=0`），别只看 `-q` 的文本尾巴。
+- demo 结尾原来无条件打印「默认路径：span 由本地 InMemorySpanExporter 验证，不联网」，
+  在 `--langfuse` 模式下会紧跟着「✅ 已用全局 tracer 上报」出现，读起来自相矛盾。
+  已改成按模式分支：上报模式下改述为「8 场景仍由本地 exporter 校验；下面额外用全局 tracer 上报 S1」。
+
 **教训**：12:4x 那次用 `urllib` 直连 `localhost` 拿到「连接重置」，就判定「服务未启动」并写进
 报告与库内笔记，是**用单一探测手段下了结论**。正确做法是先分层对照（容器状态 → 端口 → IPv4/IPv6
 → 代理），再下判断。这次错了约 1 小时，已在两仓按 append-only 更正。
