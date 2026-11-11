@@ -160,9 +160,9 @@ cd /e/Projects/LLMOps-Engineer
 | `evals/out/w7d6/langgraph_spans.json` | 导出的真 span（本地产物，不入库） |
 
 **仍未做**：checkpointer 换成跨进程持久化实现（当前是 `InMemorySaver`，进程退出即丢）；
-工具换成真实检索 / 计费接口后重新评估权限边界；`app/observability.py` 自身的 `localhost`
-地址未改（属 W2 观测层，改动会影响既有测试与容器配置，需单独确认）。没改 `/chat`、
-没改 Dockerfile、没接真实模型。
+工具换成真实检索 / 计费接口后重新评估权限边界。`app/observability.py` 的**代码**没动
+（`.env` 的 host 已于 14:0x 改成 `127.0.0.1`，该模块实测能正常上报，见 §10.1；模块内的兜底
+默认值仍是 `localhost`，只在 `.env` 缺键时生效）。没改 `/chat`、没改 Dockerfile、没接真实模型。
 
 ## 10. 接入自托管 Langfuse 的两个坑（2026-11-11 13:3x 复核）
 
@@ -170,7 +170,7 @@ cd /e/Projects/LLMOps-Engineer
 
 | 坑 | 现象 | 根因 | 处理 |
 | --- | --- | --- | --- |
-| ① `localhost` 走 IPv6 | `LANGFUSE_HOST=http://localhost:3000` 下 `curl` 返回 `000`、Python `urllib` 报连接重置 | Windows 把 `localhost` 优先解析成 `::1`，Docker Desktop 的端口转发只监听 IPv4；`curl -4` 与 `127.0.0.1` 均 200 | `normalize_langfuse_host()` 把 `localhost` 换成 `127.0.0.1`（不改 `.env`，只在运行时归一化） |
+| ① `localhost` 走 IPv6 | `LANGFUSE_HOST=http://localhost:3000` 下 `curl` 返回 `000`、Python `urllib` 报连接重置 | Windows 把 `localhost` 优先解析成 `::1`，Docker Desktop 的端口转发只监听 IPv4；`curl -4` 与 `127.0.0.1` 均 200 | `normalize_langfuse_host()` 把 `localhost` 换成 `127.0.0.1`（运行时归一化，代码不依赖 `.env` 怎么写）；**2026-11-11 14:0x 用户拍板后 `.env` 与 `.env.example` 也一并改成 `127.0.0.1`** |
 | ② 本地代理截胡 | 换 `127.0.0.1` 后 `urllib` 通，但 SDK `auth_check()` 仍失败，日志 `WinError 10053` | 进程环境有 `HTTP_PROXY=http://127.0.0.1:6670` 且无 `no_proxy`，httpx 把请求发给了代理 | `bypass_local_proxy()` 追加 `no_proxy` + 构造 `httpx.Client(trust_env=False)`，不删任何既有代理变量 |
 
 对照验证（同一台机、同一时刻）：
@@ -187,6 +187,19 @@ SDK auth_check(host=127.0.0.1)   → True（禁用代理变量后）
 `/api/public/v2/observations?limit=100` 回查，同一 `traceId` 下出现
 `agent.run` 与 `agent.tool.calculator` 两条记录，`startTime` 与本机运行时刻一致——
 是本轮真打进去的，不是历史残留。
+
+### 10.1 顺手验了 W2 观测层（14:0x）
+
+`.env` 的 host 改成 `127.0.0.1` 之后，**W2 的 `app/observability.py` 不用改代码就能上报了**：
+
+- `observability.status()` → `{"mode": "langfuse", "enabled": true, "host": "http://127.0.0.1:3000"}`；
+- 用它的 `trace_chat()` 上下文发一条假 chat 并 `flush()`，回查 `/api/public/v2/observations`，
+  14:11:01 出现 `chat`（SPAN）+ `chat.cheap`（GENERATION）两条，就是那一发；
+- 全量 pytest 仍 **161 项全过**（junitxml 复核 `tests=161 failures=0 errors=0`），
+  此前退出时的 `Failed to export spans batch` 重试日志不再出现——那条噪声的根因就是这个地址。
+
+`app/observability.py` 里 `os.getenv("LANGFUSE_HOST", "http://localhost:3000")` 的**兜底默认值
+仍是 localhost**，本轮没动代码：正常路径都读 `.env`，只有 `.env` 缺键时才落到兜底值。
 
 **教训**：12:4x 那次用 `urllib` 直连 `localhost` 拿到「连接重置」，就判定「服务未启动」并写进
 报告与库内笔记，是**用单一探测手段下了结论**。正确做法是先分层对照（容器状态 → 端口 → IPv4/IPv6
