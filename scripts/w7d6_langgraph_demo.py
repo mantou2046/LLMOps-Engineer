@@ -5,10 +5,13 @@
 
 用法（仓库根目录）：
   D:\\python314\\python.exe scripts\\w7d6_langgraph_demo.py
+  D:\\python314\\python.exe scripts\\w7d6_langgraph_demo.py --langfuse
+     额外把 S1 的 span 真上报到自托管 Langfuse（需 health 200 且凭据有效）
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -68,6 +71,13 @@ def span_rows(spans) -> list[dict]:
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser(description="W7 D6 真 LangGraph Agent 实跑")
+    ap.add_argument(
+        "--langfuse",
+        action="store_true",
+        help="把 S1 的 span 真上报到自托管 Langfuse（需 health 200 且凭据有效）",
+    )
+    args = ap.parse_args()
     scenarios: list[dict] = []
     all_spans: list[dict] = []
 
@@ -149,8 +159,8 @@ def main() -> None:
         ],
         "caveats": [
             (
-                "Langfuse SDK 已装，但本机自托管服务 2026-11-11 不可达；"
-                "span 用独立本地 provider 验证，未上报云端"
+                "默认用独立本地 provider 验 span 结构，保证零网络可复现；"
+                "加 --langfuse 才真上报到自托管 Langfuse"
             ),
             "规划器是规则而非 LLM 判定，同输入永远同结论",
             "工具是本地固定表与四则运算，不接触真实模型、凭据或外部服务",
@@ -243,7 +253,20 @@ def main() -> None:
     print(
         f"\n断言 24/24 通过。明细：{OUT.relative_to(ROOT)}、{SPAN_OUT.relative_to(ROOT)}"
     )
-    print("⚠️ span 由本地 InMemorySpanExporter 验证；Langfuse 服务未启动，未上报云端。")
+    print("默认路径：span 由本地 InMemorySpanExporter 验证，不联网。")
+
+    if args.langfuse:
+        tracer = ag.enable_langfuse_tracing()
+        if tracer is None:
+            print("⚠️ Langfuse 不可用（凭据缺失 / health 不通），本次未上报。")
+            return
+        cloud, _ = ag.run_agent("算一下 128*4，并查报销截止日")
+        flushed = ag.flush_langfuse()
+        print(
+            f"✅ 已用全局 tracer 上报 S1：finish_reason={cloud.finish_reason} "
+            f"steps={cloud.steps} flush={flushed}"
+        )
+        print("   面板查法：UI Traces 里找 agent.run，或 GET /api/public/v2/observations")
 
 
 if __name__ == "__main__":

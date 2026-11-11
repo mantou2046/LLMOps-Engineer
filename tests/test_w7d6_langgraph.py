@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import agent_demo as legacy
 import agent_graph as ag
@@ -200,3 +201,21 @@ def test_same_finish_reason_and_tool_chain_as_legacy_agent(task):
     assert graph_result.finish_reason == legacy_result.finish_reason
     assert [e.tool for e in graph_result.trace] == [e.tool for e in legacy_result.trace]
     assert [e.args for e in graph_result.trace] == [e.args for e in legacy_result.trace]
+
+
+# ---- 本机接入 Langfuse 的两个坑（纯函数，不联网）--------------------------------
+def test_normalize_langfuse_host_rewrites_localhost_to_ipv4():
+    assert ag.normalize_langfuse_host("http://localhost:3000") == "http://127.0.0.1:3000"
+    assert ag.normalize_langfuse_host("http://127.0.0.1:3000/") == "http://127.0.0.1:3000"
+    assert ag.normalize_langfuse_host("http://langfuse.internal:3000") == (
+        "http://langfuse.internal:3000"
+    )
+
+
+def test_bypass_local_proxy_merges_without_deleting(monkeypatch):
+    monkeypatch.setenv("no_proxy", "example.com")
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:6670")
+    merged = ag.bypass_local_proxy()
+    assert {"example.com", "127.0.0.1", "localhost"} <= set(merged.split(","))
+    assert os.environ["NO_PROXY"] == merged
+    assert os.environ["http_proxy"] == "http://127.0.0.1:6670", "不得删除既有代理变量"

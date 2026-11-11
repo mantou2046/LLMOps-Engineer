@@ -6,6 +6,7 @@
 
 > [!success] 2026-11-11 补记：上面的「待补」已闭环
 > 真 `StateGraph` / `ToolNode` / checkpointer 与 OTel span 已实现并实跑，见 [evals/AGENT_GRAPH.md](AGENT_GRAPH.md)。本文与 `app/agent_demo.py` 按 11/09 时点快照保留，作为零依赖回退路径与对照基线；下方「待补」§6 与所有 11/09 数字不再回溯改写。
+> 同日 13:3x 补验：span 已**真上报**自托管 Langfuse 面板（此前「服务未启动」是误判，真因是 `localhost` 走 IPv6 + 本地代理，见 AGENT_GRAPH.md §10）。
 
 ## 1. 任务卡验收点：trace 里能不能看到每一步
 

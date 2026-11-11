@@ -10,15 +10,24 @@
   · 三条守卫：最大步数、总超时、未知/异常工具。任务卡点名「agent 极易死循环」。
   · 工具不接触凭据；calculator 复用 AST 白名单求值，不用 eval。
 
-观测口径（重要，别读成「已上报 Langfuse」）：
+观测口径：
   · 每一步工具调用是**真正的 OpenTelemetry span**，由 ToolNode 的 wrap_tool_call 包住
     实际执行区间，属性带 step / tool / args / result / elapsed_ms / reason / ok。
   · 根 span 是 `agent.run`，子 span 是 `agent.tool.<name>`，父子关系可在导出的 span 里核。
-  · Langfuse SDK 3.x 注册的是全局 TracerProvider；默认 `trace.get_tracer()` 拿到的 tracer
-    在服务可达、凭据有效时会被自动采集上报。W2 的 `app/observability.py` 已用同一套 v3 API。
-  · 本机 2026-11-11 自托管 Langfuse 服务未启动（health 连接被重置），所以实跑注入的是
-    **独立本地 TracerProvider + InMemorySpanExporter**，只验 span 结构与层级，不冒充云端上报。
+  · Langfuse SDK 3.x 注册的是全局 TracerProvider；`enable_langfuse_tracing()` 初始化后
+    `run_agent()` 不传 ctx 就用全局 tracer，span 由 Langfuse 自动采集上报。
+  · demo / 单测默认注入**独立本地 TracerProvider + InMemorySpanExporter**，不联网、可复现。
+    加 `--langfuse` 才真上报到自托管面板。
   · 字典 trace 是 span 的本地投影，供回放对账与旧断言使用；观测原语是 span，不是字典。
+
+⚠️ 本机接入两个坑（2026-11-11 13:3x 复核，见 evals/AGENT_GRAPH.md §10）：
+  ① `.env` 的 LANGFUSE_HOST 写 localhost，Windows 优先解析 ::1，而 Docker 端口转发在
+     IPv6 上不通 —— 实测 `curl http://localhost:3000/...` 返回 000、`curl -4` 与
+     `127.0.0.1` 返回 200。故接入时把 localhost 归一化成 127.0.0.1。
+  ② 进程环境里有 HTTP_PROXY=http://127.0.0.1:6670 且没有 no_proxy，SDK 请求会被本地
+     代理截胡（WinError 10053）。故显式传 `httpx.Client(trust_env=False)` 并补 no_proxy。
+  服务本身一直正常：6 个容器自 11/09 起 Up，`/api/public/health` 200。12:4x 曾用
+  Python urllib 直连 localhost 被重置，误判成「服务未启动」，已在报告与库内笔记更正。
 """
 
 from __future__ import annotations
@@ -51,6 +60,7 @@ __all__ = [
     "calculator",
     "default_plan",
     "enable_langfuse_tracing",
+    "flush_langfuse",
     "local_tracing",
     "loop_tool",
     "run_agent",
@@ -168,17 +178,51 @@ def local_tracing() -> TracingContext:
     return TracingContext(provider, exporter, provider.get_tracer("llmops.w7d6.agent"))
 
 
-def enable_langfuse_tracing() -> Tracer | None:
-    """可选：初始化 Langfuse SDK v3 全局 TracerProvider，返回该全局 tracer。
+_langfuse_client: Any = None
 
-    之后 `run_agent()` 不传 ctx 就会用全局 tracer，span 由 Langfuse 的 OTel exporter 采集。
-    ⚠️ 需要 .env 里 LANGFUSE_* 三件套且自托管服务可达；不可用时返回 None，
-       调用方应回落到 local_tracing()，不要谎称已上报。初始化不打印任何凭据值。
+
+def normalize_langfuse_host(host: str) -> str:
+    """把 localhost 换成 127.0.0.1，绕开 Windows 上的 IPv6 ::1 端口转发问题。"""
+    from urllib.parse import urlparse, urlunparse
+
+    u = urlparse(host.strip())
+    if (u.hostname or "").lower() == "localhost":
+        netloc = "127.0.0.1" + (f":{u.port}" if u.port else "")
+        return urlunparse(u._replace(netloc=netloc)).rstrip("/")
+    return host.strip().rstrip("/")
+
+
+def bypass_local_proxy() -> str:
+    """把本地地址补进 no_proxy（W2 D15 坑九），返回合并后的值。
+
+    只补 no_proxy 还不够：SDK 的 HTTP 客户端仍可能读 HTTP_PROXY，所以调用方还要
+    显式传 `httpx.Client(trust_env=False)`。这里不改、不删任何既有代理变量。
     """
     import os
 
+    parts = [p for p in os.environ.get("no_proxy", "").split(",") if p]
+    for name in ("127.0.0.1", "localhost"):
+        if name not in parts:
+            parts.append(name)
+    merged = ",".join(parts)
+    os.environ["no_proxy"] = os.environ["NO_PROXY"] = merged
+    return merged
+
+
+def enable_langfuse_tracing() -> Tracer | None:
+    """可选：初始化 Langfuse SDK v3 全局 TracerProvider，返回该全局 tracer。
+
+    之后 `run_agent()` 不传 ctx 就用全局 tracer，span 由 Langfuse 的 OTel exporter 采集。
+    ⚠️ 需要 .env 里 LANGFUSE_* 三件套且自托管服务可达；不可用时返回 None，调用方应
+       回落 local_tracing()，不要谎称已上报。初始化不打印任何凭据值。
+    """
+    import os
+
+    import httpx
     from dotenv import load_dotenv
     from langfuse import Langfuse
+
+    global _langfuse_client  # noqa: PLW0603 - 模块级单例，进程退出前要 flush
 
     load_dotenv()
     keys = (
@@ -188,16 +232,34 @@ def enable_langfuse_tracing() -> Tracer | None:
     )
     if not all(keys):
         return None
+    host = normalize_langfuse_host(keys[2])
+    bypass_local_proxy()
     try:
-        Langfuse(
+        _langfuse_client = Langfuse(
             public_key=keys[0],
             secret_key=keys[1],
-            host=keys[2],
+            host=host,
+            httpx_client=httpx.Client(trust_env=False, timeout=15),
             blocked_instrumentation_scopes=["fastapi"],
         )
+        if not _langfuse_client.auth_check():
+            _langfuse_client = None
+            return None
     except Exception:  # noqa: BLE001 - 观测不可用时业务照跑
+        _langfuse_client = None
         return None
     return otel_trace.get_tracer("llmops.w7d6.agent")
+
+
+def flush_langfuse() -> bool:
+    """把队列里的 span 发完；返回是否真的 flush 过。"""
+    if _langfuse_client is None:
+        return False
+    try:
+        _langfuse_client.flush()
+    except Exception:  # noqa: BLE001 - flush 失败不影响业务
+        return False
+    return True
 
 
 def _tool_error(exc: Exception) -> str:
