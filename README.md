@@ -412,9 +412,9 @@ python scripts/check_sensitive.py --all                              # 手动全
 
 > 终稿按 C4 model 只画前两层：**上下文层**（跟谁打交道）+ **容器层**（有哪些可独立部署的部分）。完整图、四条数据流（检索 / 评估 / 观测 / 成本）与 8 个决策标注见 **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**；每个选型的「为什么不是另一个 + 证据 + 复核条件」见 **[`docs/DECISION_INDEX.md`](docs/DECISION_INDEX.md)**。
 >
-> 静态版大图（不依赖 Mermaid 渲染，适合离线 / 简历附件）：**[`docs/images/llmops-architecture-v4.svg`](docs/images/llmops-architecture-v4.svg)** —— 与下方 Mermaid 同源，含 L1 / L2 两层、27 条走线与边界说明。**8 条决策标注不在图上重复**，编号 D1–D8 见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 表格（图上的 ①–⑥ 只是容器分区）。
+> 静态版大图（不依赖 Mermaid 渲染，适合离线 / 简历附件）：**[`docs/images/llmops-architecture-v4.1.svg`](docs/images/llmops-architecture-v4.1.svg)** —— 与下方 Mermaid 同源，含 L1 / L2 两层、27 条走线与边界说明。**8 条决策标注不在图上重复**，编号 D1–D8 见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 表格（图上的 ①–⑥ 只是容器分区）。
 
-![LLMOps 作品集架构图 v4](docs/images/llmops-architecture-v4.svg)
+![LLMOps 作品集架构图 v4.1](docs/images/llmops-architecture-v4.1.svg)
 
 ```mermaid
 flowchart LR

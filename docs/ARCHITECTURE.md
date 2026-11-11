@@ -6,11 +6,11 @@
 >
 > **配套**：决策标注的证据与复核条件在 [`DECISION_INDEX.md`](DECISION_INDEX.md)；十二层逐层读数（W4 版）在知识库 `作品集架构图 v3`。
 >
-> **静态版**：[`images/llmops-architecture-v4.svg`](images/llmops-architecture-v4.svg)（680×1320，两层图 + 边界说明；**8 条决策标注已从图里拆出**，见 §2 的 D1–D8 表格，图上不重复）。**Mermaid 是源，SVG 是导出物**：改图先改下面两段 Mermaid，再同步 SVG。
+> **静态版**：[`images/llmops-architecture-v4.1.svg`](images/llmops-architecture-v4.1.svg)（680×1320，两层图 + 边界说明；**8 条决策标注已从图里拆出**，见 §2 的 D1–D8 表格，图上不重复）。**Mermaid 是源，SVG 是导出物**：改图先改下面两段 Mermaid，再同步 SVG。
 >
 > **2026-11-11 目检修订（v4.1）**：分区用 ①–⑥、决策用 D1–D8，两套编号不再打架；粗实线只给请求链路、旁路与离线降淡；竖排标签全部改横排；交叉处加跳线弧。**主图现在只负责「怎么搭」，判断力由 §2 表格与 `DECISION_INDEX.md` 承担。**
 
-![LLMOps 作品集架构图 v4](images/llmops-architecture-v4.svg)
+![LLMOps 作品集架构图 v4.1](images/llmops-architecture-v4.1.svg)
 
 ---
 
