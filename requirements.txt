@@ -6,7 +6,7 @@
 #   W3     实验追踪（mlflow）
 #   W4     编排与网关（prefect / litellm）
 #   W6     检索与评估（向量库 / RAGAS）
-#   W7     观测与微调
+#   W7     观测与微调、Agent 编排
 
 # ---- 服务层（W1–W2：把 LLM 调用包成可部署服务）----
 fastapi>=0.115,<0.200
@@ -31,6 +31,13 @@ tenacity>=9.0,<10.0
 #    评估过「放进 dev 依赖以免污染生产镜像」，否掉的理由：K8s 的 prod 环境**也要开观测**，
 #    真按环境拆依赖，就得维护两套 requirements，收益（几 MB）不抵维护成本。
 langfuse>=2.50,<4.0
+
+# ---- Agent 编排（W7 D6，2026-11-11 补）----
+# 真 StateGraph / ToolNode / checkpointer 见 app/agent_graph.py；与 W2 的观测层共用 v3 SDK API。
+langgraph>=1.2.20,<2.0
+# ⚠️ xxhash 是 langgraph 的传递依赖。本机 Python 3.14 上单独解析 >=3.5.0 会挑不到 cp314 轮子
+#    （报错 No matching distribution found），显式钉 >=4.1.0 才能一次装成；3.13 及以下无需此行。
+xxhash>=4.1.0,<5.0
 
 # ---- 监控（W5 D1 接入）----
 # prometheus_client：/metrics 端点与三个 HTTP 指标（见 app/metrics.py）

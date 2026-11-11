@@ -4,6 +4,9 @@
 > 本机 2026-11-09 实测 `langgraph` / `langchain` / `langchain_core` / `langfuse` **全部未安装**。本轮按「文档为主、不动环境」的约定，不装新包，用**纯标准库**做了一个最小可跑的多步 Agent：节点 / 状态 / 分支 / 工具循环都用普通函数表达，trace 全链路可核对。
 > 真 `StateGraph` / `ToolNode` / checkpointer 与 Langfuse 自动追踪**尚未实现**，需装依赖后补；任务卡 11/21 的「可观测 agent」按「概念与验收点已验证、LangGraph 实现待补」记账。
 
+> [!success] 2026-11-11 补记：上面的「待补」已闭环
+> 真 `StateGraph` / `ToolNode` / checkpointer 与 OTel span 已实现并实跑，见 [evals/AGENT_GRAPH.md](AGENT_GRAPH.md)。本文与 `app/agent_demo.py` 按 11/09 时点快照保留，作为零依赖回退路径与对照基线；下方「待补」§6 与所有 11/09 数字不再回溯改写。
+
 ## 1. 任务卡验收点：trace 里能不能看到每一步
 
 `scripts/w7d6_agent_demo.py` 的 S1（「算一下 128*4，并查报销截止日」）实跑输出：
