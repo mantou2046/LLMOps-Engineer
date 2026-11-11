@@ -411,6 +411,10 @@ python scripts/check_sensitive.py --all                              # 手动全
 ## 架构图（v4 定稿 · C4 两层）
 
 > 终稿按 C4 model 只画前两层：**上下文层**（跟谁打交道）+ **容器层**（有哪些可独立部署的部分）。完整图、四条数据流（检索 / 评估 / 观测 / 成本）与 8 个决策标注见 **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**；每个选型的「为什么不是另一个 + 证据 + 复核条件」见 **[`docs/DECISION_INDEX.md`](docs/DECISION_INDEX.md)**。
+>
+> 静态版大图（不依赖 Mermaid 渲染，适合离线 / 简历附件）：**[`docs/images/llmops-architecture-v4.svg`](docs/images/llmops-architecture-v4.svg)** —— 与下方 Mermaid 同源，含 L1 / L2 两层、17 条走线和 8 条决策标注。
+
+![LLMOps 作品集架构图 v4](docs/images/llmops-architecture-v4.svg)
 
 ```mermaid
 flowchart LR

@@ -5,6 +5,10 @@
 > **口径**：只画 C4 前两层。组件层（某个容器里分几块）留到 `docs/k8s-concepts.md` 与十二层读数表；代码层不画。**层数越多越难在 3 分钟内讲清**，这是有意的取舍，不是没画完。
 >
 > **配套**：决策标注的证据与复核条件在 [`DECISION_INDEX.md`](DECISION_INDEX.md)；十二层逐层读数（W4 版）在知识库 `作品集架构图 v3`。
+>
+> **静态版**：[`images/llmops-architecture-v4.svg`](images/llmops-architecture-v4.svg)（680×1532，两层图 + 8 条决策标注一次看全，适合离线与简历附件）。**Mermaid 是源，SVG 是导出物**：改图先改下面两段 Mermaid，再同步 SVG。
+
+![LLMOps 作品集架构图 v4](images/llmops-architecture-v4.svg)
 
 ---
 
@@ -116,7 +120,7 @@ flowchart TB
 | ② 护栏 | 格式错**最多修一次** + 固定兜底 | 无限重试放大调用；直接 500 让「模型抖一下」变服务不可用 | 30 条：误拦 0 / 漏拦 0（`evals/OUTPUT_GUARD_BENCH.md`） |
 | ⑥ 评估 | CI 门禁**只用非 LLM 指标** | 上游限流会让 CI 红成与代码无关的假红 | `IDBasedContextRecall@5` **0.75** / 阈值 0.65，改坏模板塌到 **0.0**（DEC-046） |
 
-> 8 条的完整证据路径与复核条件见 [`DECISION_INDEX.md`](DECISION_INDEX.md)；W7 的护栏 / 成本 / 微调 / Agent 四条尚无 DEC 编号，候选条目列在该文档第七节。
+> 8 条的完整证据路径与复核条件见 [`DECISION_INDEX.md`](DECISION_INDEX.md)。W7 的护栏 / 成本 / 微调 / Agent 原本没有编号，**2026-11-11 已补成 DEC-048 ~ DEC-052**，清单第七节是同口径正表。
 
 ---
 

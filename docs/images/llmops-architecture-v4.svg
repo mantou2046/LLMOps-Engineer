@@ -1,0 +1,208 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 1532" width="680" height="1532" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif">
+  <desc>LLMOps 作品集架构图 v4 · C4 两层（L1 上下文 + L2 容器），与 docs/ARCHITECTURE.md 的 Mermaid 同源，2026-11-11 定稿</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#334155"/>
+    </marker>
+    <marker id="ahg" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <rect width="680" height="1532" fill="#ffffff"/>
+
+  <text x="24" y="34" font-size="19" font-weight="700" fill="#0f172a">LLMOps 作品集 · 架构图 v4 · 定稿</text>
+  <text x="24" y="56" font-size="12" fill="#475569">《资金 / 财务制度知识库 · 智能问答与评估平台》　W8 D1 收口（2026-11-11）</text>
+  <text x="24" y="74" font-size="12" fill="#475569">C4 只画前两层：L1 上下文（跟谁打交道）＋ L2 容器（可独立部署的部分）——十二层明细见 v3 图</text>
+
+  <line x1="24" y1="84" x2="52" y2="84" stroke="#334155" stroke-width="2.5"/>
+  <text x="58" y="88" font-size="11" fill="#475569">实线 = 请求链路</text>
+  <line x1="176" y1="84" x2="204" y2="84" stroke="#94a3b8" stroke-width="2.5" stroke-dasharray="5 4"/>
+  <text x="210" y="88" font-size="11" fill="#64748b">虚线 = 旁路</text>
+  <text x="330" y="88" font-size="11" fill="#64748b">①–⑥ = 容器分区　·　DEC-0## = 决策编号</text>
+
+  <!-- ============ L1 上下文层 ============ -->
+  <rect x="24" y="100" width="632" height="290" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="36" y="124" font-size="13" font-weight="700" fill="#334155">L1 · 上下文层 —— 这系统跟谁打交道</text>
+
+  <rect class="node" x="60" y="140" width="130" height="100" rx="6" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="125" y="172" font-size="10.5" font-weight="700" fill="#334155" text-anchor="middle">业务提问者</text>
+  <text x="125" y="190" font-size="9" fill="#475569" text-anchor="middle">／面试官</text>
+  <text x="125" y="208" font-size="9" fill="#475569" text-anchor="middle">问一句制度条款</text>
+
+  <rect class="node" x="262" y="180" width="150" height="70" rx="6" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5"/>
+  <text x="337" y="208" font-size="11.5" font-weight="700" fill="#0c4a6e" text-anchor="middle">LLMOps 问答平台</text>
+  <text x="337" y="228" font-size="9.5" fill="#475569" text-anchor="middle">检索+生成+护栏+观测</text>
+
+  <rect class="node" x="490" y="140" width="140" height="100" rx="6" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="560" y="172" font-size="10.5" font-weight="700" fill="#334155" text-anchor="middle">上游模型供应商</text>
+  <text x="560" y="190" font-size="9" fill="#475569" text-anchor="middle">OpenAI 兼容端点</text>
+  <text x="560" y="208" font-size="9" fill="#475569" text-anchor="middle">或本地 Ollama</text>
+
+  <rect class="node" x="60" y="252" width="140" height="54" rx="6" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="130" y="274" font-size="10.5" font-weight="700" fill="#334155" text-anchor="middle">我 · 运维与开发</text>
+  <text x="130" y="292" font-size="8.5" fill="#475569" text-anchor="middle">改配置/发版/重跑评估</text>
+
+  <rect class="node" x="490" y="252" width="140" height="54" rx="6" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="560" y="274" font-size="10.5" font-weight="700" fill="#334155" text-anchor="middle">观测读者</text>
+  <text x="560" y="292" font-size="8" fill="#475569" text-anchor="middle">Grafana/Langfuse/MLflow</text>
+
+  <rect class="node" x="180" y="322" width="150" height="44" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="255" y="340" font-size="10" font-weight="700" fill="#334155" text-anchor="middle">git 仓库</text>
+  <text x="255" y="356" font-size="8.5" fill="#475569" text-anchor="middle">prompt 正文与语料</text>
+
+  <rect class="node" x="370" y="322" width="160" height="44" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="450" y="340" font-size="10" font-weight="700" fill="#334155" text-anchor="middle">50 题 golden set</text>
+  <text x="450" y="356" font-size="8.5" fill="#475569" text-anchor="middle">评估集与标准答案</text>
+
+  <path class="edge" d="M190,193 L260,193" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="225" y="187" font-size="8.5" fill="#64748b" text-anchor="middle">问题</text>
+  <path class="edge" d="M262,225 L192,225" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="226" y="240" font-size="8" fill="#64748b" text-anchor="middle">答案+引用+档位</text>
+  <path class="edge" d="M200,285 L300,252" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="208" y="296" font-size="8" fill="#64748b">发版/改阈值/切别名</text>
+  <path class="edge" d="M412,195 L488,195" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="450" y="188" font-size="8" fill="#64748b" text-anchor="middle">prompt+上下文</text>
+  <path class="edge" d="M490,225 L414,225" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="452" y="240" font-size="8" fill="#64748b" text-anchor="middle">生成结果+token用量</text>
+  <path class="edge" d="M412,250 L488,266" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <text x="450" y="282" font-size="8.5" fill="#64748b" text-anchor="middle">指标 / trace / 实验</text>
+  <path class="edge" d="M255,322 L300,252" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <text x="308" y="290" font-size="8.5" fill="#64748b">prompt 正文（只读）</text>
+  <path class="edge" d="M400,322 L352,252" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <text x="384" y="314" font-size="8.5" fill="#64748b" text-anchor="end">离线评测输入</text>
+
+  <text x="36" y="378" font-size="9.5" fill="#475569">一句话：人问的一句话 → 有引用、有档位、有成本、可回查的回答；顺手记下哪一步变慢 / 变贵 / 变错</text>
+
+  <!-- ============ L2 容器层 ============ -->
+  <rect x="24" y="404" width="632" height="788" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="36" y="428" font-size="13" font-weight="700" fill="#334155">L2 · 容器层 —— 可独立部署的部分</text>
+  <text x="36" y="445" font-size="9" fill="#64748b">实线 = 请求链路　·　虚线 = 旁路（不阻塞请求）　·　⑥ 为离线任务，非常驻进程</text>
+
+  <!-- ① 入口 -->
+  <rect x="36" y="456" width="608" height="56" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="48" y="476" font-size="11" font-weight="700" fill="#334155">① 入口</text>
+  <rect class="node" x="250" y="466" width="180" height="36" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="340" y="482" font-size="10.5" font-weight="700" fill="#334155" text-anchor="middle">ingress-nginx</text>
+  <text x="340" y="496" font-size="8.5" fill="#475569" text-anchor="middle">3 条 Host 规则 · DEC-011</text>
+
+  <!-- ② 应用 -->
+  <rect x="36" y="524" width="608" height="116" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="48" y="544" font-size="11" font-weight="700" fill="#334155">② 应用容器</text>
+  <rect class="node" x="52" y="552" width="300" height="80" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="202" y="572" font-size="11" font-weight="700" fill="#334155" text-anchor="middle">FastAPI /chat</text>
+  <text x="202" y="589" font-size="9" fill="#475569" text-anchor="middle">输入护栏 → 检索 → 分流 → 输出护栏</text>
+  <text x="202" y="604" font-size="8" fill="#64748b" text-anchor="middle">规则判档 DEC-033 · 护栏 DEC-048/049</text>
+  <text x="202" y="619" font-size="8" fill="#64748b" text-anchor="middle">llmops-chart · Helm 打包 DEC-015</text>
+  <rect class="node" x="420" y="552" width="170" height="60" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="505" y="574" font-size="11" font-weight="700" fill="#334155" text-anchor="middle">cost.py</text>
+  <text x="505" y="592" font-size="9" fill="#475569" text-anchor="middle">精确缓存 + 成本点数</text>
+  <text x="505" y="606" font-size="8" fill="#64748b" text-anchor="middle">DEC-032 / DEC-050</text>
+
+  <!-- ③ 模型出口 -->
+  <rect x="36" y="652" width="608" height="128" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="48" y="672" font-size="11" font-weight="700" fill="#334155">③ 模型出口</text>
+  <rect class="node" x="52" y="694" width="120" height="60" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="112" y="710" font-size="10" font-weight="700" fill="#334155" text-anchor="middle">LiteLLM :4001</text>
+  <text x="112" y="726" font-size="8.5" fill="#475569" text-anchor="middle">primary / cheap /</text>
+  <text x="112" y="742" font-size="8.5" fill="#475569" text-anchor="middle">backup · DEC-033</text>
+  <rect class="node" x="210" y="694" width="120" height="60" rx="6" fill="#ecfdf5" stroke="#34d399" stroke-width="1.2"/>
+  <text x="270" y="714" font-size="10" font-weight="700" fill="#064e3b" text-anchor="middle">redis</text>
+  <text x="270" y="732" font-size="8.5" fill="#475569" text-anchor="middle">精确缓存</text>
+  <text x="270" y="748" font-size="8" fill="#64748b" text-anchor="middle">TTL 600 · DEC-032</text>
+  <rect class="node" x="370" y="694" width="170" height="60" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+  <text x="455" y="714" font-size="10" font-weight="700" fill="#334155" text-anchor="middle">上游模型</text>
+  <text x="455" y="732" font-size="8.5" fill="#475569" text-anchor="middle">网关别名背后可换</text>
+  <text x="455" y="748" font-size="8" fill="#64748b" text-anchor="middle">或本地 Ollama</text>
+
+  <!-- ④ 数据 -->
+  <rect x="36" y="792" width="608" height="112" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="48" y="812" font-size="11" font-weight="700" fill="#334155">④ 数据（业务与实验分库 · DEC-028）</text>
+  <rect class="node" x="52" y="824" width="240" height="64" rx="6" fill="#ecfdf5" stroke="#34d399" stroke-width="1.2"/>
+  <text x="172" y="846" font-size="10" font-weight="700" fill="#064e3b" text-anchor="middle">mlflow 库（元数据）</text>
+  <text x="172" y="864" font-size="8.5" fill="#475569" text-anchor="middle">实验与 registry 指针 · DEC-027</text>
+  <rect class="node" x="330" y="824" width="260" height="64" rx="6" fill="#ecfdf5" stroke="#34d399" stroke-width="1.2"/>
+  <text x="460" y="846" font-size="10" font-weight="700" fill="#064e3b" text-anchor="middle">postgres + pgvector</text>
+  <text x="460" y="864" font-size="8.5" fill="#475569" text-anchor="middle">330 块 · ivfflat probes=3 · DEC-041</text>
+
+  <!-- ⑤ 观测 -->
+  <rect x="36" y="916" width="608" height="150" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="48" y="942" font-size="11" font-weight="700" fill="#334155">⑤ 观测（旁路，不阻塞请求）</text>
+  <rect class="node" x="52" y="958" width="120" height="60" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.2"/>
+  <text x="112" y="980" font-size="10" font-weight="700" fill="#1e3a5f" text-anchor="middle">Prometheus</text>
+  <text x="112" y="998" font-size="8.5" fill="#475569" text-anchor="middle">指标抓取</text>
+  <rect class="node" x="210" y="958" width="120" height="60" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.2"/>
+  <text x="270" y="980" font-size="10" font-weight="700" fill="#1e3a5f" text-anchor="middle">Grafana</text>
+  <text x="270" y="998" font-size="8.5" fill="#475569" text-anchor="middle">看板 8 块</text>
+  <rect class="node" x="370" y="958" width="120" height="60" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.2"/>
+  <text x="430" y="980" font-size="10" font-weight="700" fill="#1e3a5f" text-anchor="middle">Langfuse</text>
+  <text x="430" y="998" font-size="8.5" fill="#475569" text-anchor="middle">trace+prompt 版本</text>
+  <rect class="node" x="530" y="958" width="90" height="60" rx="6" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.2"/>
+  <text x="575" y="980" font-size="10" font-weight="700" fill="#1e3a5f" text-anchor="middle">MLflow</text>
+  <text x="575" y="998" font-size="8.5" fill="#475569" text-anchor="middle">实验+alias</text>
+
+  <!-- ⑥ 离线与 CI -->
+  <rect x="36" y="1078" width="608" height="100" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="48" y="1098" font-size="11" font-weight="700" fill="#334155">⑥ 离线与 CI（非常驻进程）</text>
+  <rect class="node" x="52" y="1114" width="220" height="56" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.2"/>
+  <text x="162" y="1136" font-size="10" font-weight="700" fill="#713f12" text-anchor="middle">Prefect</text>
+  <text x="162" y="1154" font-size="8.5" fill="#475569" text-anchor="middle">索引重建 cron 03:00</text>
+  <rect class="node" x="330" y="1114" width="250" height="56" rx="6" fill="#fffbeb" stroke="#fcd34d" stroke-width="1.2"/>
+  <text x="455" y="1136" font-size="10" font-weight="700" fill="#713f12" text-anchor="middle">evals 脚本 + eval-gate</text>
+  <text x="455" y="1154" font-size="8.5" fill="#475569" text-anchor="middle">golden set 50 题 · CI 门禁 DEC-046</text>
+
+  <!-- ===== L2 边 ===== -->
+  <path class="edge" d="M300,502 L220,550" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <path class="edge" d="M350,632 L350,822" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text transform="rotate(-90 361 727)" x="361" y="727" font-size="8.5" fill="#64748b" text-anchor="middle">检索 top-5</text>
+  <path class="edge" d="M352,580 L420,580" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="386" y="573" font-size="8" fill="#64748b" text-anchor="middle">model=auto</text>
+  <path class="edge" d="M460,612 L150,692" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <path class="edge" d="M172,722 L208,722" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <path class="edge" d="M112,754 L112,772 L455,772 L455,756" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <path class="edge" d="M490,754 L490,781 L95,781 L95,756" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <text x="380" y="766" font-size="8" fill="#64748b" text-anchor="middle">首字延迟 / usage</text>
+
+  <!-- 观测汇流走线：APP 与 LL 的指标从左侧走廊进 Prometheus -->
+  <path class="edge" d="M52,585 L44,585" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <path class="edge" d="M52,735 L44,735" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <path class="edge" d="M44,585 L44,1008" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <path class="edge" d="M44,990 L52,990" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <path class="edge" d="M44,1008 L52,1008" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <circle cx="44" cy="585" r="2.5" fill="#94a3b8"/>
+  <circle cx="44" cy="735" r="2.5" fill="#94a3b8"/>
+  <circle cx="44" cy="990" r="2.5" fill="#94a3b8"/>
+  <text transform="rotate(-90 30 780)" x="30" y="780" font-size="8" fill="#64748b" text-anchor="middle">APP /metrics</text>
+  <text transform="rotate(-90 30 880)" x="30" y="880" font-size="8" fill="#64748b" text-anchor="middle">LL spend/tokens</text>
+
+  <path class="edge" d="M172,988 L208,988" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+
+  <path class="edge" d="M330,552 L330,540 L626,540 L626,1040 L430,1040 L430,1020" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <text x="520" y="1034" font-size="8.5" fill="#64748b" text-anchor="middle">trace + prompt chip</text>
+  <path class="edge" d="M310,552 L310,533 L634,533 L634,994 L622,994" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <text x="545" y="530" font-size="8.5" fill="#64748b" text-anchor="middle">实验汇总</text>
+
+  <path class="edge" d="M575,958 L575,930 L200,930 L200,892" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text x="380" y="924" font-size="8.5" fill="#64748b" text-anchor="middle">元数据</text>
+
+  <path class="edge" d="M260,1114 L260,1094 L340,1094 L340,892" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#ah)"/>
+  <text transform="rotate(-90 352 1000)" x="352" y="1000" font-size="8.5" fill="#64748b" text-anchor="middle">IVFFlat upsert</text>
+
+  <path class="edge" d="M580,1140 L612,1140 L612,1058 L575,1058 L575,1022" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ahg)"/>
+  <text x="560" y="1088" font-size="8.5" fill="#64748b" text-anchor="middle">报告落 evals/</text>
+
+  <!-- ============ 决策标注 ============ -->
+  <rect x="24" y="1204" width="632" height="316" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+  <text x="36" y="1228" font-size="11.5" font-weight="700" fill="#334155">图上 8 个决策标注（一句话版）· 完整证据与复核条件见 docs/DECISION_INDEX.md</text>
+  <text x="36" y="1252" font-size="9.5" fill="#334155">① 入口 · ingress-nginx 而非 NodePort：kind 宿主机访问不到 NodePort；三条 Host 各 200（DEC-011）</text>
+  <text x="36" y="1280" font-size="9.5" fill="#334155">② 打包 · Helm 而非裸 YAML：Release 带 revision，回滚一条命令（DEC-015）</text>
+  <text x="36" y="1308" font-size="9.5" fill="#334155">② 检索 · 递归切块 400/50 + RRF 融合：hit@1 7/10 → 10/10、MRR 0.825 → 1.0（DEC-039/040）</text>
+  <text x="36" y="1336" font-size="9.5" fill="#334155">② 分流 · 规则判档而非 LLM 判路由：4.8–6.0 µs vs 0.5–2 s；离线 12/12 与标注一致（DEC-033）</text>
+  <text x="36" y="1364" font-size="9.5" fill="#334155">② 护栏 · 格式错最多修一次 + 固定兜底：30 条误拦 0 / 漏拦 0（DEC-049）</text>
+  <text x="36" y="1392" font-size="9.5" fill="#334155">③ 出口 · 三档别名 + 精确缓存，语义缓存暂缓：1161.6 → 8.9 ms、响应 id 相同（DEC-032/050）</text>
+  <text x="36" y="1420" font-size="9.5" fill="#334155">④ 数据 · 显式 ivfflat.probes=3：默认 1 掉到 9/9/7，改后稳定 10/10（DEC-041）</text>
+  <text x="36" y="1448" font-size="9.5" fill="#334155">⑥ 评估 · CI 门禁只用非 LLM 指标：IDBasedContextRecall@5 0.75 ≥ 0.65，改坏模板塌到 0.0（DEC-046）</text>
+  <text x="36" y="1474" font-size="9" fill="#64748b">不能从这张图推出来的：单节点 kind 非生产 · 微调 100% 是 40 条合成样本的格式学习 · Agent 规划器是规则非模型 · checkpointer 进程内</text>
+  <text x="36" y="1490" font-size="9" fill="#64748b">语义缓存三前置缺失未上 · 成本点数是演示单位（向量库 / rerank / Redis / 出流量未计入）· 上游是可替换供应商非具体模型</text>
+  <text x="36" y="1512" font-size="8.5" fill="#94a3b8">v4 · 2026-11-11 定稿 · C4 两层（L1+L2）；v1–v3 演进与十二层逐层读数见 llmops-architecture-v3.svg · 与 docs/ARCHITECTURE.md 的 Mermaid 同源</text>
+</svg>
