@@ -111,3 +111,5 @@ observatory/screens/*.png
 # evals/out/ 下是 batch_score.py / route_probe.py 每次跑出来的 parquet / csv，
 # 属于「跑一遍就有」的中间产物；结论写进笔记与决策日志，原始表格不入库。
 evals/out/
+*.tfstate*
+.terraform/
