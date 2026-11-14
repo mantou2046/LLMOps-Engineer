@@ -92,6 +92,8 @@ infra/terraform/terraform.tfstate.*
 infra/terraform/terraform.tfvars
 infra/terraform/kubeconfig
 *.tfplan
+# 无扩展名的 tfplan：上面 *.tfplan 匹配不到，需单独排除（W8 D5 补）
+infra/terraform/tfplan
 desktop.ini
 *.swp
 *~
