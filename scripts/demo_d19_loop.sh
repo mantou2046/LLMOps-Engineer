@@ -36,7 +36,7 @@ COURSE_REPO="${COURSE_REPO:-/e/Projects/Dev/mlops-zoomcamp}"
 AUTO="${AUTO:-0}"
 
 # ---- Python：托管 venv 优先（依赖齐全），课程 .venv 次之，最后系统 python ----
-PY="${PY:-C:/Users/lile2/.workbuddy-ai/binaries/python/envs/default/Scripts/python.exe}"
+PY="${PY:-$HOME/.workbuddy-ai/binaries/python/envs/default/Scripts/python.exe}"
 [ -x "$PY" ] || PY="python"
 PY_MLFLOW="$PY"
 [ -x "$COURSE_REPO/.venv/Scripts/python.exe" ] && PY_MLFLOW="$COURSE_REPO/.venv/Scripts/python.exe"

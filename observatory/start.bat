@@ -38,8 +38,8 @@ echo   [2/3] ²éÕÒ Python...
 set PY=
 where python >nul 2>nul && set PY=python
 if "%PY%"=="" (
-    if exist "C:\Users\lile2\.workbuddy-ai\binaries\python\versions\3.13.12\python.exe" (
-        set PY=C:\Users\lile2\.workbuddy-ai\binaries\python\versions\3.13.12\python.exe
+    if exist "%USERPROFILE%\.workbuddy-ai\binaries\python\versions\3.13.12\python.exe" (
+        set PY=%USERPROFILE%\.workbuddy-ai\binaries\python\versions\3.13.12\python.exe
     )
 )
 if "%PY%"=="" (

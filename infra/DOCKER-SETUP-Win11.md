@@ -234,7 +234,7 @@ Docker Desktop → **Settings → Resources → WSL Integration**
 - CPUs：给 6–8 核（本机 22 逻辑核）
 - Memory：给 4–6 GB（⚠️ 本机 32GB 物理内存，**可用仅约 14.6 GB**，别给太多）
 
-**WSL2 侧**：新建 `C:\Users\lile2\.wslconfig`（本机目前**没有**这个文件，走默认配置）
+**WSL2 侧**：新建 `%USERPROFILE%\.wslconfig`（本机目前**没有**这个文件，走默认配置）
 
 ```ini
 [wsl2]

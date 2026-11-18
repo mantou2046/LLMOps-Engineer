@@ -465,7 +465,7 @@ kind delete cluster --name llmops
 
 | | 位置 | 状态 |
 | --- | --- | --- |
-| 迁移前 | `C:\Users\lile2\AppData\Local\Docker\wsl\disk\docker_data.vhdx` | 11.5 GB，C 盘只剩 37G |
+| 迁移前 | `%USERPROFILE%\AppData\Local\Docker\wsl\disk\docker_data.vhdx` | 11.5 GB，C 盘只剩 37G |
 | **迁移后** | **`E:\Projects\DockerData\DockerDesktopWSL\`** | **11.55 GB，C 盘回到 48G** |
 
 📄 **迁移步骤见 [`docs/docker-data-move-to-E.md`](docs/docker-data-move-to-E.md)**

@@ -47,7 +47,7 @@ SAFE="$(echo "$IMG" | tr '/:' '__')"
 TAR="${TMPDIR:-/tmp}/${SAFE}.tar"
 # Git Bash 的 /tmp 映射到 Windows 真实路径时 docker 也能认，但用显式绝对路径更稳
 case "$TAR" in
-  /tmp/*) TAR="C:/Users/lile2/AppData/Local/Temp/${SAFE}.tar" ;;
+  /tmp/*) TAR="${USERPROFILE//\\//}/AppData/Local/Temp/${SAFE}.tar" ;;
 esac
 
 echo "[1/3] docker save $IMG -> $TAR"

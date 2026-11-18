@@ -6,7 +6,7 @@
 
 > 背景：之前 C 盘 220G 已用 184G、**只剩 37G（84%）**；
 > 而 Docker 的**全部**数据（镜像 / 容器 / 卷 / kind 节点）都落在
-> `C:\Users\lile2\AppData\Local\Docker\wsl\disk\docker_data.vhdx`（**11.5 GB**）。
+> `%USERPROFILE%\AppData\Local\Docker\wsl\disk\docker_data.vhdx`（**11.5 GB**）。
 > 现迁到 **`E:\Projects\DockerData`**。
 
 ## 为什么目标位置不在项目目录里
@@ -105,8 +105,8 @@ bash scripts/verify_d4.sh        # 一条命令验完（19 项）
 
 ```bash
 # ① 检查 C 盘是否还有残留（先查再删）
-find "/c/Users/lile2/AppData/Local/Docker" -name "*.vhdx" 2>/dev/null
-du -sh "/c/Users/lile2/AppData/Local/Docker"
+find "$HOME/AppData/Local/Docker" -name "*.vhdx" 2>/dev/null
+du -sh "$HOME/AppData/Local/Docker"
 ```
 
 > § 实测（2026-10-09）：**Docker Desktop 已自动清理，无需手工删**。
@@ -115,7 +115,7 @@ du -sh "/c/Users/lile2/AppData/Local/Docker"
 > 若确实有残留（早期版本会出现），再手工处理（**Docker Desktop 需已完全退出**）：
 > ```bash
 > # 保守做法：先改名观察，确认没问题再彻底删
-> mv "C:/Users/lile2/AppData/Local/Docker/wsl/disk" "C:/Users/lile2/AppData/Local/Docker/wsl/disk.bak"
+> mv "$HOME/AppData/Local/Docker/wsl/disk" "$HOME/AppData/Local/Docker/wsl/disk.bak"
 > ```
 
 ## 如果不想迁移 —— 备选方案
@@ -126,7 +126,7 @@ du -sh "/c/Users/lile2/AppData/Local/Docker"
 
 ```powershell
 # ⚠️ 需要 Hyper-V 模块；且 Docker Desktop 必须完全退出
-Optimize-VHD -Path "C:\Users\lile2\AppData\Local\Docker\wsl\disk\docker_data.vhdx" -Mode Full
+Optimize-VHD -Path "$env:USERPROFILE\AppData\Local\Docker\wsl\disk\docker_data.vhdx" -Mode Full
 ```
 
 > 实测本机 PowerShell 受限，`Add-Type` 被拦，这条**可能跑不通**。

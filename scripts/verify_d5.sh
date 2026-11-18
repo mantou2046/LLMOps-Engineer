@@ -32,8 +32,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 CLUSTER="llmops"
-KIND_BIN="$(command -v kind || echo /c/Users/lile2/bin/kind.exe)"
-KUBECTL_BIN="$(command -v kubectl || echo "/c/Users/lile2/AppData/Local/Programs/DockerDesktop/resources/bin/kubectl")"
+KIND_BIN="$(command -v kind || echo "$HOME/bin/kind.exe")"
+KUBECTL_BIN="$(command -v kubectl || echo "$HOME/AppData/Local/Programs/DockerDesktop/resources/bin/kubectl")"
 K() { "$KUBECTL_BIN" "$@"; }
 
 PASS=0; FAIL=0

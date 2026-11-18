@@ -55,8 +55,8 @@ HOST="${HOST:-127.0.0.1}"
 #    现在按顺序试，并且**逐个验证能不能 import 依赖** —— 只判「文件存在」不够，
 #    存在但缺包的下场一样：起不来，而且报错更靠后、更难懂。
 PY_CANDIDATES=(
-  "C:/Users/lile2/.workbuddy-ai/binaries/python/envs/default/Scripts/python.exe"
-  "/c/Users/lile2/.workbuddy-ai/binaries/python/envs/default/Scripts/python.exe"
+  "$HOME/.workbuddy-ai/binaries/python/envs/default/Scripts/python.exe"
+  "${USERPROFILE//\\//}/.workbuddy-ai/binaries/python/envs/default/Scripts/python.exe"
   "D:/python314/python.exe"
   "/d/python314/python.exe"
 )

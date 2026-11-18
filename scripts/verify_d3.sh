@@ -11,7 +11,7 @@
 #
 # 前置：
 #   1. Docker Desktop 已启动（引擎在跑）
-#   2. kind 已装（C:\Users\lile2\bin\kind.exe）
+#   2. kind 已装（$HOME/bin/kind.exe，或已在 PATH）
 #   3. 镜像 llmops-api:0.1.0 已构建（D2 的 scripts/verify_d2.sh 会构建）
 #
 # 用法（Git Bash）：
@@ -41,8 +41,8 @@ info() { echo "  ℹ️  $1"; }
 hr()   { echo "-------------------------------------------------------------"; }
 
 # ---- 定位工具（kind / kubectl 可能不在 PATH）----
-KIND_BIN="$(command -v kind || echo /c/Users/lile2/bin/kind.exe)"
-KUBECTL_BIN="$(command -v kubectl || echo "/c/Users/lile2/AppData/Local/Programs/DockerDesktop/resources/bin/kubectl")"
+KIND_BIN="$(command -v kind || echo "$HOME/bin/kind.exe")"
+KUBECTL_BIN="$(command -v kubectl || echo "$HOME/AppData/Local/Programs/DockerDesktop/resources/bin/kubectl")"
 
 echo "============================================================="
 echo " W1 D3 验收 · K8s 起手（Deployment + Service）"
@@ -57,7 +57,7 @@ else
   bad "Docker 引擎没起来 → 先启动 Docker Desktop，再重跑本脚本"
   echo
   echo "  启动方式：开始菜单搜 Docker Desktop，或手工双击"
-  echo "  C:\\Users\\lile2\\AppData\\Local\\Programs\\DockerDesktop\\Docker Desktop.exe"
+  echo "  %USERPROFILE%\\AppData\\Local\\Programs\\DockerDesktop\\Docker Desktop.exe"
   exit 1
 fi
 

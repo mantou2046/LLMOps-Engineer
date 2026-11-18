@@ -20,8 +20,8 @@ cd "$REPO_ROOT"
 
 CLUSTER="llmops"
 NS="default"
-KIND_BIN="$(command -v kind || echo /c/Users/lile2/bin/kind.exe)"
-KUBECTL_BIN="$(command -v kubectl || echo "/c/Users/lile2/AppData/Local/Programs/DockerDesktop/resources/bin/kubectl")"
+KIND_BIN="$(command -v kind || echo "$HOME/bin/kind.exe")"
+KUBECTL_BIN="$(command -v kubectl || echo "$HOME/AppData/Local/Programs/DockerDesktop/resources/bin/kubectl")"
 
 PASS=0; FAIL=0
 ok()   { echo "  ✅ $1"; PASS=$((PASS+1)); }
