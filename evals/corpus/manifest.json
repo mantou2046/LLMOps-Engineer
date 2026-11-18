@@ -3,7 +3,7 @@
   "source_commit": "6ba1baf",
   "source_path": "docs/*.md",
   "frozen_at": "2026-11-05",
-  "reason": "docs/decisions.md 会随决策日志增长。2026-11-05 新增 DEC-039/040 后语料从 104798 涨到 110097 字符，块数 330→345，且探针关键词被写进语料，基线失去可复现性。",
+  "reason": "docs/decisions.md 会随决策日志增长。2026-11-05 新增 DEC-039/040 后语料从 104798 涨到 110097 字符，块数 330→345，且探针关键词被写进语料，基线失去可复现性。2026-11-18 本机用户名脱敏：docker-data-move-to-E.md 内 6 处用户名做等长替换（5 字符→5 字符），字节数 / 字符数 / 330 块切块口径与全部评估数字不变，仅更新该文件 sha256。",
   "total_chars": 104798,
   "total_files": 6,
   "files": [
@@ -17,7 +17,7 @@
       "file": "docker-data-move-to-E.md",
       "bytes": 6978,
       "chars": 4468,
-      "sha256": "0d6a7c9a1650ee8cfc3e6f108bf2e8fa28c330151d05f52018fb8a9b3966fd37"
+      "sha256": "4d027eb068c3ecdc704010d04021b5834bffaf62f2011c323a64f97652481477"
     },
     {
       "file": "env-setup.md",
